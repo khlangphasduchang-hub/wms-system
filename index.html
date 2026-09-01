@@ -580,15 +580,24 @@ tbody tr:hover{background:#FAFBFD;}
    ========================================================= */
 
 /* ---------- config ---------- */
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "ใส่ apiKey ของคุณ",
-  authDomain: "wms-clang.firebaseapp.com",
-  databaseURL: "https://wms-clang-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "wms-clang",
-  storageBucket: "wms-clang.firebasestorage.app",
-  messagingSenderId: "319425247694",
-  appId: "1:319425247694:web:5a9874d2473068124b939f"
+  apiKey: "AIzaSyA4r6SPQLaoqzhJU7GAkMqvzvwvm7SrYRs",
+  authDomain: "wms-warehouse-958f3.firebaseapp.com",
+  databaseURL: "https://wms-warehouse-958f3-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "wms-warehouse-958f3",
+  storageBucket: "wms-warehouse-958f3.firebasestorage.app",
+  messagingSenderId: "992030611324",
+  appId: "1:992030611324:web:e2a65e1ca43ee7a156f6f9"
 };
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
 const SHEETS_MIRROR_URL = 'https://script.google.com/macros/s/AKfycbyQ8BQCec266wqgF-uaOwbHHNLNC-qmbj5IRjbZpfisqPokdRZ0XSw3zqdM7kfLsRYBxg/exec';
 const SHEETS_TOKEN = 'wms-secret-2026';   // ต้องตรงกับ TOKEN ใน Apps Script
 const HISTORY_LIMIT = 500;
