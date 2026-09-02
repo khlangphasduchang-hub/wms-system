@@ -707,8 +707,8 @@ tbody tr:hover{background:#FAFBFD;}
         <div class="card">
           <div class="card-head"><h3>&#8593; นำเข้าข้อมูลจาก Excel</h3></div>
           <p style="font-size:13px; color:var(--ink-soft); line-height:1.7;">
-            อัปโหลดไฟล์ .xlsx ที่มีชีตชื่อ <span class="mono">Inventory</span> เพื่อแทนที่/อัปเดตข้อมูลวัสดุในคลัง
-            (คอลัมน์: code, description, type, stock, max, price, machine, supplier)
+            อัปโหลดไฟล์ .xlsx ที่มีชีตชื่อ <span class="mono">Inventory</span> หรือ <span class="mono">Material</span> เพื่อแทนที่/อัปเดตข้อมูลวัสดุในคลัง
+            (รองรับหัวคอลัมน์: code/Remark, description/Description, stock/Stock, max/Max, price/Price, machine/Machine, supplier/Supplier — ไม่บังคับต้องมี type ระบบจะเดาให้จากรหัสวัสดุ)
           </p>
           <input type="file" id="importFile" accept=".xlsx,.xls" style="margin-bottom:10px;">
           <button class="btn btn-amber" onclick="importExcel()">&#8593; นำเข้าและอัปเดตคลัง</button>
@@ -1823,28 +1823,31 @@ function importExcel(){
   reader.onload = (e)=>{
     try{
       const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
-      const sheetName = wb.SheetNames.find(n=>n.toLowerCase()==='inventory') || wb.SheetNames[0];
+      const sheetName = wb.SheetNames.find(n=>['inventory','material'].includes(n.toLowerCase())) || wb.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
       if(!rows.length){ toast('ไม่พบข้อมูลในชีต', true); return; }
-      let updated=0, added=0;
+      let updated=0, added=0, skipped=0;
       rows.forEach(r=>{
-        const code = String(r.code||r.Code||r.remark||'').trim();
-        if(!code) return;
+        const code = String(r.code||r.Code||r.remark||r.Remark||'').trim();
+        if(!code){ skipped++; return; }
         const existing = inventory.find(i=>i.code===code);
         const data = {
-          code, description: String(r.description||r.Description||''), type: String(r.type||r.Type||CATS[0]),
+          code, description: String(r.description||r.Description||''),
+          type: String(r.type||r.Type||'') || guessTypeFromCode(code),
           stock: parseInt(r.stock||r.Stock)||0, max: parseInt(r.max||r.Max)||0,
           price: parseFloat(r.price||r.Price)||0, machine: String(r.machine||r.Machine||''),
-          supplier: String(r.supplier||r.Supplier||'')
+          supplier: String(r.supplier||r.Supplier||''),
+          lastReceive: String(r.lastReceive||r.LastReceive||''), receiveBy: String(r.receiveBy||r.ReceiveBy||'')
         };
         if(existing){ Object.assign(existing, data); updated++; }
         else { inventory.push({id:code, ...data}); added++; }
       });
       saveInventory();
+      mirrorMaterialSnapshot();
       renderAll();
-      toast(`นำเข้าสำเร็จ: อัปเดต ${updated} รายการ, เพิ่มใหม่ ${added} รายการ`);
+      toast(`นำเข้าสำเร็จ: อัปเดต ${updated} รายการ, เพิ่มใหม่ ${added} รายการ${skipped?`, ข้าม ${skipped} แถว (ไม่มีรหัส)`:''}`);
     }catch(err){
-      toast('เกิดข้อผิดพลาดในการอ่านไฟล์ Excel', true);
+      toast('เกิดข้อผิดพลาดในการอ่านไฟล์ Excel: '+err.message, true);
     }
   };
   reader.readAsArrayBuffer(file);
