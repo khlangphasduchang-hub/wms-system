@@ -716,6 +716,12 @@ tbody tr:hover{background:#FAFBFD;}
       </div>
 
       <div class="card">
+        <div class="card-head"><h3>ล้างข้อมูลตัวอย่าง (เริ่มต้นว่างเปล่า)</h3></div>
+        <p style="font-size:13px; color:var(--ink-soft);">ลบข้อมูลตัวอย่างที่มากับระบบตอนติดตั้งครั้งแรกออกทั้งหมด (มีผลกับทุกเครื่อง) แล้วปล่อยคลังว่างไว้ พร้อมให้คุณนำเข้าข้อมูลจริงผ่านเมนู Excel ด้านบนได้ทันที</p>
+        <button class="btn btn-danger" onclick="clearAllData()">ล้างข้อมูลตัวอย่าง (เริ่มว่างเปล่า)</button>
+      </div>
+
+      <div class="card">
         <div class="card-head"><h3>ล้างและตั้งค่าเริ่มต้นใหม่</h3></div>
         <p style="font-size:13px; color:var(--ink-soft);">ล้างข้อมูลทั้งหมดในฐานข้อมูลกลาง (มีผลกับทุกเครื่อง) และเริ่มต้นด้วยข้อมูลตัวอย่างใหม่</p>
         <button class="btn btn-danger" onclick="resetDemoData()">ล้างข้อมูลทั้งหมด</button>
@@ -924,7 +930,7 @@ function onDataChange(){
    PULL (sheet -> app): the "ซิงค์จาก Google Sheet" button on the Excel/Data-sync panel reads the
    Material tab back and applies it to Firebase — this is how manual edits made directly in the
    spreadsheet make their way back into the app. Failures here never block the app itself. */
-const SHEETS_MIRROR_URL = 'https://script.google.com/macros/s/AKfycbzmXEu5fdi2T-SEDHBJB6NRjH07WWDNVK_TmorGQsG_2sW9pkUBDcTQ99amJuOTB1wAuw/exec';
+const SHEETS_MIRROR_URL = 'https://script.google.com/macros/s/AKfycbyQ8BQCec266wqgF-uaOwbHHNLNC-qmbj5IRjbZpfisqPokdRZ0XSw3zqdM7kfLsRYBxg/exec';
 let mirrorTimer = null;
 function scheduleMirrorToSheets(){
   clearTimeout(mirrorTimer);
@@ -1113,6 +1119,15 @@ function saveIssue(){
   db.ref('issueHistory').set(issueHistory).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
 }
 
+function clearAllData(){
+  if(!confirm('ลบข้อมูลตัวอย่างทั้งหมดและเริ่มต้นคลังแบบว่างเปล่าหรือไม่? การกระทำนี้จะมีผลกับทุกเครื่องที่เชื่อมต่ออยู่ และไม่สามารถย้อนกลับได้')) return;
+  if(!confirm('ยืนยันอีกครั้ง: ข้อมูลวัสดุ ประวัติรับ-เบิกทั้งหมดจะถูกลบถาวร คลังจะว่างเปล่าจนกว่าคุณจะนำเข้าข้อมูลจริงเอง ต้องการดำเนินการต่อหรือไม่?')) return;
+  db.ref('inventory').set([]).catch(err=>toast('ล้างข้อมูลไม่สำเร็จ: '+err.message, true));
+  db.ref('recvHistory').set([]);
+  db.ref('issueHistory').set([]);
+  db.ref('meta/seeded').set(true);
+  toast('ล้างข้อมูลตัวอย่างเรียบร้อย พร้อมนำเข้าข้อมูลจริงได้เลย');
+}
 function resetDemoData(){
   if(!confirm('ล้างข้อมูลทั้งหมดและเริ่มต้นใหม่หรือไม่? การกระทำนี้จะมีผลกับทุกเครื่องที่เชื่อมต่ออยู่ และไม่สามารถย้อนกลับได้')) return;
   if(!confirm('ยืนยันอีกครั้ง: ข้อมูลคลังวัสดุ ประวัติรับ-เบิกทั้งหมดจะถูกลบถาวรและแทนที่ด้วยข้อมูลตัวอย่าง ต้องการดำเนินการต่อหรือไม่?')) return;
