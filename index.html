@@ -685,6 +685,15 @@ tbody tr:hover{background:#FAFBFD;}
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-head"><h3>&#8635; ซิงค์กับ Google Sheet (Warehouse System2)</h3></div>
+        <p style="font-size:13px; color:var(--ink-soft); line-height:1.7;">
+          ทุกครั้งที่รับ/เบิกสินค้า ระบบจะส่งแถวใหม่ไปที่ชีต <span class="mono">Material / Receive / Issue / AuditLog</span> ให้อัตโนมัติ (ทางเดียว: แอป &rarr; ชีต)<br>
+          ถ้าคุณแก้ไขตัวเลข Stock/Max/Price/Machine/Supplier ในแท็บ <span class="mono">Material</span> ของ Google Sheet ด้วยมือ ให้กดปุ่มด้านล่างเพื่อดึงกลับเข้าแอป (ทางกลับ: ชีต &rarr; แอป)
+        </p>
+        <button class="btn btn-amber" onclick="pullFromSheet()">&#8595; ซิงค์จาก Google Sheet</button>
+      </div>
+
       <div class="grid-2">
         <div class="card">
           <div class="card-head"><h3>&#8595; ส่งออกข้อมูลเป็น Excel</h3></div>
@@ -909,32 +918,83 @@ function onDataChange(){
   }
 }
 
-/* ---------- one-way mirror: Firebase (source of truth) -> Google Sheets (live readable copy) ----------
-   Firebase stays the real-time backend for the app itself; this just keeps a Google Sheet
-   updated so the data can be viewed/reported/bulk-edited in spreadsheet form. Failures here
-   never block or break the app — the mirror is a convenience, not a dependency. */
+/* ---------- two-way sync: Firebase (real-time backend) <-> Google Sheets (Warehouse System2) ----------
+   PUSH (app -> sheet): every receive/issue appends one row to Receive/Issue/AuditLog immediately
+   (never overwrites past rows), and Material is re-synced as a full snapshot whenever stock changes.
+   PULL (sheet -> app): the "ซิงค์จาก Google Sheet" button on the Excel/Data-sync panel reads the
+   Material tab back and applies it to Firebase — this is how manual edits made directly in the
+   spreadsheet make their way back into the app. Failures here never block the app itself. */
 const SHEETS_MIRROR_URL = 'https://script.google.com/macros/s/AKfycbyQ8BQCec266wqgF-uaOwbHHNLNC-qmbj5IRjbZpfisqPokdRZ0XSw3zqdM7kfLsRYBxg/exec';
 let mirrorTimer = null;
 function scheduleMirrorToSheets(){
   clearTimeout(mirrorTimer);
-  mirrorTimer = setTimeout(mirrorToSheetsNow, 1500); // debounce: wait for a quiet moment before pushing
+  mirrorTimer = setTimeout(mirrorMaterialSnapshot, 1500); // debounce: wait for a quiet moment before pushing
 }
-function mirrorToSheetsNow(){
-  mirrorSheet('Material', inventory.map(i=>({ code:i.code, description:i.description, type:i.type, stock:i.stock, max:i.max, price:i.price, machine:i.machine, supplier:i.supplier })));
-  mirrorSheet('Receive', recvHistory.map(h=>({ date:h.date, time:h.time, code:h.code, description:h.description, by:h.by, qty:h.qty, price:h.price, stockBefore:h.stockBefore, stockAfter:h.stockAfter })));
-  mirrorSheet('Issue', issueHistory.map(h=>({ date:h.date, time:h.time, code:h.code, description:h.description, by:h.by, dept:h.dept, email:h.email, qty:h.qty, stockBefore:h.stockBefore, stockAfter:h.stockAfter })));
+/* Full-snapshot push of the Material tab — columns must match the sheet exactly:
+   Remark | Description | Stock | Max | Price | LastReceive | ReceiveBy | Machine | Supplier */
+function mirrorMaterialSnapshot(){
+  const rows = inventory.map(i=>({
+    Remark:i.code, Description:i.description, Stock:i.stock, Max:i.max, Price:i.price,
+    LastReceive:i.lastReceive||'', ReceiveBy:i.receiveBy||'', Machine:i.machine||'', Supplier:i.supplier||''
+  }));
+  sheetsPost({ action:'replaceAll', sheet:'Material', rows });
 }
-function mirrorSheet(sheetName, rows){
+/* Append one row to a log-style tab (Receive / Issue / AuditLog) without touching earlier rows. */
+function sheetsAppendRow(sheetName, row){
+  sheetsPost({ action:'appendRow', sheet:sheetName, row });
+}
+function sheetsPost(payload){
   fetch(SHEETS_MIRROR_URL, {
     method:'POST',
     headers: {'Content-Type':'text/plain;charset=utf-8'}, // avoids a CORS preflight that Apps Script can't answer
-    body: JSON.stringify({ action:'replaceAll', sheet:sheetName, rows })
+    body: JSON.stringify(payload)
   }).then(res=>res.text()).then(txt=>{
-    console.log('[Sheets mirror] '+sheetName+' ->', txt);
+    console.log('[Sheets sync] '+payload.sheet+' ('+payload.action+') ->', txt);
   }).catch(err=>{
-    console.error('[Sheets mirror] '+sheetName+' failed:', err);
-    toast('ส่งข้อมูลไป Sheets ไม่สำเร็จ ('+sheetName+'): '+err.message, true);
+    console.error('[Sheets sync] '+payload.sheet+' failed:', err);
+    toast('ส่งข้อมูลไป Sheets ไม่สำเร็จ ('+payload.sheet+'): '+err.message, true);
   });
+}
+/* Document numbers in the same shape as the existing sheet history: RCV-YYYYMMDD-HHMMSS-NNNN */
+function genDocNo(prefix){
+  const d = new Date();
+  const ymd = d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+  const hms = String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0')+String(d.getSeconds()).padStart(2,'0');
+  const rand = Math.floor(1000+Math.random()*9000);
+  return `${prefix}-${ymd}-${hms}-${rand}`;
+}
+/* PULL: read the Material tab from the sheet and apply it on top of Firebase inventory.
+   Matches rows by Remark === code. New Remarks become new items; existing ones get their
+   Stock/Max/Price/Machine/Supplier/Description updated from whatever is in the sheet. */
+function pullFromSheet(){
+  toast('กำลังดึงข้อมูลจาก Google Sheet...');
+  fetch(SHEETS_MIRROR_URL + '?action=material')
+    .then(res=>res.json())
+    .then(data=>{
+      if(!data || !data.ok){ toast('ดึงข้อมูลไม่สำเร็จ: '+(data&&data.error||'unknown error'), true); return; }
+      let updated=0, added=0;
+      (data.rows||[]).forEach(r=>{
+        const code = String(r.Remark||'').trim();
+        if(!code) return;
+        const existing = inventory.find(i=>i.code===code);
+        const patch = {
+          description: String(r.Description||''),
+          stock: parseInt(r.Stock)||0, max: parseInt(r.Max)||0, price: parseFloat(r.Price)||0,
+          machine: String(r.Machine||''), supplier: String(r.Supplier||''),
+          lastReceive: String(r.LastReceive||''), receiveBy: String(r.ReceiveBy||'')
+        };
+        if(existing){ Object.assign(existing, patch); updated++; }
+        else { inventory.push({id:code, code, type: guessTypeFromCode(code), ...patch}); added++; }
+      });
+      saveInventory();
+      renderAll();
+      toast(`ซิงค์จาก Sheet สำเร็จ: อัปเดต ${updated} รายการ, เพิ่มใหม่ ${added} รายการ`);
+    })
+    .catch(err=>{ toast('ดึงข้อมูลจาก Sheet ไม่สำเร็จ: '+err.message, true); });
+}
+function guessTypeFromCode(code){
+  const prefix = String(code).split('-')[0];
+  return CATS.includes(prefix) ? prefix : '70OTH';
 }
 
 /* ---------- remote scan bridge: phone camera acts as a barcode gun for any other open screen ---------- */
@@ -1287,15 +1347,29 @@ function submitReceive(){
   if(qty<=0){ toast('กรุณากรอกจำนวนรับเข้าให้ถูกต้อง', true); return; }
 
   const before = item.stock;
+  const docNo = genDocNo('RCV');
+  const stampFull = nowStamp();
   item.stock = item.stock + qty;
   if(price>0) item.price = price;
+  item.lastReceive = todayStr();
+  item.receiveBy = by;
   saveInventory();
+  mirrorMaterialSnapshot();
 
   recvHistory.unshift({
-    date: todayStr(), time: nowStamp(), itemId:item.id, code:item.code, description:item.description,
-    by, qty, price, stockBefore:before, stockAfter:item.stock
+    date: todayStr(), time: stampFull, itemId:item.id, code:item.code, description:item.description,
+    by, qty, price, stockBefore:before, stockAfter:item.stock, docNo
   });
   saveRecv();
+  sheetsAppendRow('Receive', {
+    Date:stampFull, Remark:item.code, Description:item.description, Qty:qty,
+    Price:(price||item.price), Amount:(price||item.price)*qty, ReceiveBy:by, ReceiptNo:docNo,
+    OldStock:before, NewStock:item.stock
+  });
+  sheetsAppendRow('AuditLog', {
+    Date:stampFull, Action:'RECEIVE', DocumentNo:docNo, Remark:item.code,
+    OldStock:before, Qty:qty, NewStock:item.stock, User:by, Department:''
+  });
 
   toast(`บันทึกรับสินค้า ${item.code} จำนวน ${qty} ชิ้น สำเร็จ`);
   document.getElementById('recvSearch').value='';
@@ -1358,14 +1432,30 @@ function submitIssue(){
   cart.forEach(c=>{
     const item = inventory.find(i=>i.id===c.itemId);
     const before = item.stock;
+    const docNo = genDocNo('ISS');
     item.stock -= c.qty;
     issueHistory.unshift({
       date, time:stamp, itemId:item.id, code:item.code, description:item.description,
-      by, dept, email, qty:c.qty, stockBefore:before, stockAfter:item.stock
+      by, dept, email, qty:c.qty, stockBefore:before, stockAfter:item.stock, docNo
     });
     emailLines.push(`- ${item.code} (${item.description}) จำนวน ${c.qty} ชิ้น`);
+    sheetsAppendRow('Issue', {
+      Date:stamp, Remark:item.code, Description:item.description, Qty:c.qty,
+      IssueBy:by, ReceiptNo:docNo, Unit:'', Remain:item.stock, Department:dept
+    });
+    sheetsAppendRow('AuditLog', {
+      Date:stamp, Action:'ISSUE', DocumentNo:docNo, Remark:item.code,
+      OldStock:before, Qty:c.qty, NewStock:item.stock, User:by, Department:dept
+    });
+    if(email){
+      sheetsAppendRow('AuditLog', {
+        Date:stamp, Action:'EMAIL_ISSUE', DocumentNo:docNo, Remark:item.code,
+        OldStock:before, Qty:c.qty, NewStock:item.stock, User:email, Department:dept
+      });
+    }
   });
   saveInventory(); saveIssue();
+  mirrorMaterialSnapshot();
 
   // "send email" — open mailto draft with the requisition slip
   if(email){
@@ -1410,11 +1500,25 @@ function submitQaReceive(){
   if(qty<=0){ toast('กรุณากรอกจำนวนรับเข้าให้ถูกต้อง', true); return; }
   const item = inventory.find(i=>i.id===qaItem.id);
   const before = item.stock;
+  const docNo = genDocNo('RCV');
+  const stampFull = nowStamp();
   item.stock += qty;
   if(price>0) item.price = price;
+  item.lastReceive = todayStr();
+  item.receiveBy = by;
   saveInventory();
-  recvHistory.unshift({ date:todayStr(), time:nowStamp(), itemId:item.id, code:item.code, description:item.description, by, qty, price, stockBefore:before, stockAfter:item.stock });
+  mirrorMaterialSnapshot();
+  recvHistory.unshift({ date:todayStr(), time:stampFull, itemId:item.id, code:item.code, description:item.description, by, qty, price, stockBefore:before, stockAfter:item.stock, docNo });
   saveRecv();
+  sheetsAppendRow('Receive', {
+    Date:stampFull, Remark:item.code, Description:item.description, Qty:qty,
+    Price:(price||item.price), Amount:(price||item.price)*qty, ReceiveBy:by, ReceiptNo:docNo,
+    OldStock:before, NewStock:item.stock
+  });
+  sheetsAppendRow('AuditLog', {
+    Date:stampFull, Action:'RECEIVE', DocumentNo:docNo, Remark:item.code,
+    OldStock:before, Qty:qty, NewStock:item.stock, User:by, Department:''
+  });
   toast(`บันทึกรับสินค้า ${item.code} จำนวน ${qty} ชิ้น สำเร็จ`);
   closeQuickAction();
   renderDashboard();
@@ -1430,12 +1534,26 @@ function submitQaIssue(){
   const item = inventory.find(i=>i.id===qaItem.id);
   if(qty>item.stock){ toast('จำนวนเบิกมากกว่า Stock คงเหลือ', true); return; }
   const before = item.stock;
+  const docNo = genDocNo('ISS');
   item.stock -= qty;
   saveInventory();
+  mirrorMaterialSnapshot();
   const stamp = nowStamp(); const date = todayStr();
-  issueHistory.unshift({ date, time:stamp, itemId:item.id, code:item.code, description:item.description, by, dept, email, qty, stockBefore:before, stockAfter:item.stock });
+  issueHistory.unshift({ date, time:stamp, itemId:item.id, code:item.code, description:item.description, by, dept, email, qty, stockBefore:before, stockAfter:item.stock, docNo });
   saveIssue();
+  sheetsAppendRow('Issue', {
+    Date:stamp, Remark:item.code, Description:item.description, Qty:qty,
+    IssueBy:by, ReceiptNo:docNo, Unit:'', Remain:item.stock, Department:dept
+  });
+  sheetsAppendRow('AuditLog', {
+    Date:stamp, Action:'ISSUE', DocumentNo:docNo, Remark:item.code,
+    OldStock:before, Qty:qty, NewStock:item.stock, User:by, Department:dept
+  });
   if(email){
+    sheetsAppendRow('AuditLog', {
+      Date:stamp, Action:'EMAIL_ISSUE', DocumentNo:docNo, Remark:item.code,
+      OldStock:before, Qty:qty, NewStock:item.stock, User:email, Department:dept
+    });
     const subject = encodeURIComponent('ใบเบิกวัสดุ - ' + by + ' - ' + date);
     const body = encodeURIComponent(`ใบเบิกวัสดุ\nผู้เบิก: ${by}\nแผนก: ${dept}\nวันที่: ${stamp}\n\nรายการ:\n- ${item.code} (${item.description}) จำนวน ${qty} ชิ้น\n\n(ส่งอัตโนมัติจากระบบ WMS)`);
     window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
