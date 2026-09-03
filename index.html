@@ -1301,8 +1301,8 @@ function renderDashboard(){
   const totalStock = inventory.reduce((s,i)=>s+i.stock,0);
   const stockValue = inventory.reduce((s,i)=>s+i.stock*i.price,0);
   const today = todayStr();
-  const recvToday = recvHistory.filter(h=>h.date===today).length;
-  const issueToday = issueHistory.filter(h=>h.date===today).length;
+  const recvToday = recvHistory.filter(h=>h.date===today && !h.canceled).length;
+  const issueToday = issueHistory.filter(h=>h.date===today && !h.canceled).length;
 
   const kpis = [
     {label:'จำนวนวัสดุทั้งหมด', val: fmt(totalItems), unit:'รายการ', accent:'var(--blue)', go:"goPanel('warehouse')"},
@@ -1366,8 +1366,8 @@ function renderMovementChart(){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
     months.push({key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'), label:d.toLocaleDateString('th-TH',{month:'short'})});
   }
-  const recvByMonth = months.map(m=>recvHistory.filter(h=>h.date.slice(0,7)===m.key).reduce((s,h)=>s+h.qty,0));
-  const issueByMonth = months.map(m=>issueHistory.filter(h=>h.date.slice(0,7)===m.key).reduce((s,h)=>s+h.qty,0));
+  const recvByMonth = months.map(m=>recvHistory.filter(h=>h.date.slice(0,7)===m.key && !h.canceled).reduce((s,h)=>s+h.qty,0));
+  const issueByMonth = months.map(m=>issueHistory.filter(h=>h.date.slice(0,7)===m.key && !h.canceled).reduce((s,h)=>s+h.qty,0));
 
   const ctx = document.getElementById('movementChart');
   if(movementChartInst) movementChartInst.destroy();
