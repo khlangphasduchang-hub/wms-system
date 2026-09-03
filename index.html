@@ -888,9 +888,39 @@ function seedData(){
 
 /* Data now lives in Firebase Realtime Database, not localStorage.
    on('value', ...) fires immediately with current data AND again every
-   time ANY device changes it — that's what keeps every screen in sync. */
+   time ANY device changes it — that's what keeps every screen in sync.
+
+   PERFORMANCE NOTE: inventory is stored as an OBJECT keyed by item code (not an array),
+   and recvHistory/issueHistory are stored as PUSH-keyed logs (one Firebase key per
+   transaction) instead of one giant array. This means a single receive/issue only has to
+   write its own small record, not re-upload the entire (ever-growing) history every time —
+   that full-array-rewrite-per-transaction pattern is what made things get slower and
+   slower the more history piled up. Only the most recent HISTORY_LIMIT records of each
+   log are streamed to the browser by default, to keep rendering fast regardless of how
+   many months of history exist — full history is always safe in Firebase and mirrored to
+   the AuditLog tab of the Google Sheet. */
+const HISTORY_LIMIT = 500;
 let dataReady = { inv:false, recv:false, issue:false };
 let firstLoad = true;
+
+function arrToObj(arr){
+  const o = {};
+  (arr||[]).forEach(i=>{ if(i && i.code) o[i.code] = i; });
+  return o;
+}
+function snapshotToArray(snap){
+  const arr = [];
+  snap.forEach(child=>{
+    const rec = child.val();
+    rec._key = child.key;
+    arr.push(rec);
+  });
+  // newest first — new records carry _ts (a real timestamp); legacy records (pre-refactor)
+  // lack _ts and stay grouped at the end in their original (already newest-first) order,
+  // since Array.sort is stable and missing _ts sorts as 0.
+  arr.sort((a,b)=> (b._ts||0) - (a._ts||0));
+  return arr;
+}
 
 function loadAll(){
   toast('กำลังเชื่อมต่อฐานข้อมูล...');
@@ -906,7 +936,7 @@ function loadAll(){
           toast('ไม่พบข้อมูลคลังสินค้า — ข้อมูลอาจไม่ได้ถูกลบ ลองรีเฟรชหรือแจ้งผู้ดูแลระบบ', true);
         } else {
           inventory = seedData();
-          db.ref('inventory').set(inventory);
+          db.ref('inventory').set(arrToObj(inventory));
           db.ref('meta/seeded').set(true);
         }
         dataReady.inv = true; onDataChange();
@@ -917,50 +947,75 @@ function loadAll(){
       dataReady.inv = true; onDataChange();
     }
   }, err=>{ toast('ไม่สามารถอ่านข้อมูลคลังสินค้าได้: '+err.message, true); });
-  db.ref('recvHistory').on('value', snap=>{
-    const val = snap.val();
-    recvHistory = val ? (Array.isArray(val) ? val.filter(Boolean) : Object.values(val)) : [];
+  db.ref('recvHistory').limitToLast(HISTORY_LIMIT).on('value', snap=>{
+    recvHistory = snapshotToArray(snap);
     dataReady.recv = true; onDataChange();
   }, err=>{ toast('ไม่สามารถอ่านประวัติรับสินค้าได้: '+err.message, true); });
-  db.ref('issueHistory').on('value', snap=>{
-    const val = snap.val();
-    issueHistory = val ? (Array.isArray(val) ? val.filter(Boolean) : Object.values(val)) : [];
+  db.ref('issueHistory').limitToLast(HISTORY_LIMIT).on('value', snap=>{
+    issueHistory = snapshotToArray(snap);
     dataReady.issue = true; onDataChange();
   }, err=>{ toast('ไม่สามารถอ่านประวัติเบิกสินค้าได้: '+err.message, true); });
   initLiveScanListener();
 }
 function onDataChange(){
   if(!(dataReady.inv && dataReady.recv && dataReady.issue)) return;
-  if(firstLoad) ensureHistoryDocNos();
-  renderAll();
-  scheduleMirrorToSheets();
   if(firstLoad){
+    ensureHistoryDocNos();
+    renderAll();
     firstLoad=false;
     toast('เชื่อมต่อฐานข้อมูลสำเร็จ — ข้อมูลจะซิงค์ทุกเครื่องแบบเรียลไทม์');
     handleUrlQuickAction();
+  } else {
+    renderActivePanel();
   }
+}
+
+/* Re-render only what's currently on screen instead of every panel (including the QR/barcode
+   catalogs, which generate one image PER material — 1000+ items means 1000+ synchronous canvas
+   draws). Rebuilding all of that after every single receive/issue is what made the UI freeze for
+   large inventories; now a receive/issue only repaints the panel you're actually looking at. */
+function renderActivePanel(){
+  const activeEl = document.querySelector('.panel.active');
+  const name = activeEl ? activeEl.id.replace('panel-','') : 'dashboard';
+  if(name==='dashboard') renderDashboard();
+  else if(name==='warehouse') renderWarehouse();
+  else if(name==='barcode') renderBarcodeCatalog();
+  else if(name==='qrcatalog') renderQrCatalog();
+  else if(name==='history') renderHistory();
+  else updateLowStockBadge(); // cheap: keep the sidebar badge fresh even off-dashboard
+  renderCart();
+}
+function updateLowStockBadge(){
+  const alerts = inventory.filter(i=>statusOf(i)!=='ok');
+  const badge = document.getElementById('navLowBadge');
+  if(alerts.length){ badge.style.display='inline-block'; badge.textContent = alerts.length; } else { badge.style.display='none'; }
 }
 
 /* ---------- two-way sync: Firebase (real-time backend) <-> Google Sheets (Warehouse System2) ----------
    PUSH (app -> sheet): every receive/issue appends one row to Receive/Issue/AuditLog immediately
-   (never overwrites past rows), and Material is re-synced as a full snapshot whenever stock changes.
+   (never overwrites past rows), and the Material tab gets just that one changed row updated —
+   not the whole sheet — so this stays fast even with 1000+ items in inventory.
    PULL (sheet -> app): the "ซิงค์จาก Google Sheet" button on the Excel/Data-sync panel reads the
    Material tab back and applies it to Firebase — this is how manual edits made directly in the
    spreadsheet make their way back into the app. Failures here never block the app itself. */
 const SHEETS_MIRROR_URL = 'https://script.google.com/macros/s/AKfycbzmXEu5fdi2T-SEDHBJB6NRjH07WWDNVK_TmorGQsG_2sW9pkUBDcTQ99amJuOTB1wAuw/exec';
-let mirrorTimer = null;
-function scheduleMirrorToSheets(){
-  clearTimeout(mirrorTimer);
-  mirrorTimer = setTimeout(mirrorMaterialSnapshot, 1500); // debounce: wait for a quiet moment before pushing
-}
-/* Full-snapshot push of the Material tab — columns must match the sheet exactly:
-   Remark | Description | Stock | Max | Price | LastReceive | ReceiveBy | Machine | Supplier */
+/* Full-snapshot push of the Material tab — used only for bulk operations (Excel import).
+   Columns must match the sheet exactly: Remark | Description | Stock | Max | Price | LastReceive | ReceiveBy | Machine | Supplier */
 function mirrorMaterialSnapshot(){
   const rows = inventory.map(i=>({
     Remark:i.code, Description:i.description, Stock:i.stock, Max:i.max, Price:i.price,
     LastReceive:i.lastReceive||'', ReceiveBy:i.receiveBy||'', Machine:i.machine||'', Supplier:i.supplier||''
   }));
   sheetsPost({ action:'replaceAll', sheet:'Material', rows });
+}
+/* Fast path for a single receive/issue/edit: update just the one changed row on the Material tab
+   instead of rewriting all 1000+ rows. Use this for every normal transaction — reserve
+   mirrorMaterialSnapshot() for bulk imports where many rows change at once. */
+function mirrorMaterialRow(item){
+  sheetsPost({ action:'upsertRow', sheet:'Material', keyField:'Remark', row:{
+    Remark:item.code, Description:item.description, Stock:item.stock, Max:item.max, Price:item.price,
+    LastReceive:item.lastReceive||'', ReceiveBy:item.receiveBy||'', Machine:item.machine||'', Supplier:item.supplier||''
+  }});
 }
 /* Append one row to a log-style tab (Receive / Issue / AuditLog) without touching earlier rows. */
 function sheetsAppendRow(sheetName, row){
@@ -1123,25 +1178,65 @@ function handleUrlQuickAction(){
    with that empty/partial local state. Every write below now refuses to run until the
    initial sync is confirmed complete. */
 function dbReady(){ return dataReady.inv && dataReady.recv && dataReady.issue; }
+
+/* Bulk replace of the ENTIRE inventory node — only for genuinely bulk operations
+   (Excel import, clear-all, reset-to-demo). Normal receive/issue/edit of one or a
+   few items must use saveInventoryItem/saveInventoryItems instead, which write only
+   the affected item(s) rather than re-uploading the whole catalog every time. */
 function saveInventory(){
   if(!dbReady()){ toast('ยังเชื่อมต่อฐานข้อมูลไม่สมบูรณ์ กรุณารอสักครู่แล้วลองใหม่ (ไม่บันทึกเพื่อป้องกันข้อมูลสูญหาย)', true); return; }
-  db.ref('inventory').set(inventory).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
+  db.ref('inventory').set(arrToObj(inventory)).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
 }
-function saveRecv(){
-  if(!dbReady()){ toast('ยังเชื่อมต่อฐานข้อมูลไม่สมบูรณ์ กรุณารอสักครู่แล้วลองใหม่', true); return; }
-  db.ref('recvHistory').set(recvHistory).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
+/* Targeted write: only the one item that actually changed. Use this for every normal
+   receive / issue / edit / cancel of a single item — this is what keeps stock updates
+   fast regardless of how many thousand items are in the catalog. */
+function saveInventoryItem(item){
+  if(!dbReady()){ toast('ยังเชื่อมต่อฐานข้อมูลไม่สมบูรณ์ กรุณารอสักครู่แล้วลองใหม่ (ไม่บันทึกเพื่อป้องกันข้อมูลสูญหาย)', true); return; }
+  db.ref('inventory/'+item.code).set(item).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
 }
-function saveIssue(){
-  if(!dbReady()){ toast('ยังเชื่อมต่อฐานข้อมูลไม่สมบูรณ์ กรุณารอสักครู่แล้วลองใหม่', true); return; }
-  db.ref('issueHistory').set(issueHistory).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
+/* Targeted multi-item write in one round trip — use when a single transaction (e.g. a
+   multi-line issue) touches a handful of items at once. */
+function saveInventoryItems(items){
+  if(!dbReady()){ toast('ยังเชื่อมต่อฐานข้อมูลไม่สมบูรณ์ กรุณารอสักครู่แล้วลองใหม่ (ไม่บันทึกเพื่อป้องกันข้อมูลสูญหาย)', true); return; }
+  const updates = {};
+  items.forEach(i=>{ updates[i.code] = i; });
+  db.ref('inventory').update(updates).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
+}
+
+/* Push a brand-new receive/issue record — writes only that one small record, not the
+   whole (ever-growing) history log. The Firebase client generates the push key locally
+   and synchronously, so we can attach it to the record and update the UI immediately
+   without waiting for the network round trip. */
+function pushRecv(record){
+  if(!dbReady()){ toast('ยังเชื่อมต่อฐานข้อมูลไม่สมบูรณ์ กรุณารอสักครู่แล้วลองใหม่', true); return record; }
+  const ref = db.ref('recvHistory').push();
+  record._key = ref.key; record._ts = Date.now();
+  ref.set(record).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
+  return record;
+}
+function pushIssue(record){
+  if(!dbReady()){ toast('ยังเชื่อมต่อฐานข้อมูลไม่สมบูรณ์ กรุณารอสักครู่แล้วลองใหม่', true); return record; }
+  const ref = db.ref('issueHistory').push();
+  record._key = ref.key; record._ts = Date.now();
+  ref.set(record).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
+  return record;
+}
+/* Edit/cancel an EXISTING record — update just that one record's node, not the whole log. */
+function updateRecvRecord(key, changes){
+  if(!key || !dbReady()) return;
+  db.ref('recvHistory/'+key).update(changes).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
+}
+function updateIssueRecord(key, changes){
+  if(!key || !dbReady()) return;
+  db.ref('issueHistory/'+key).update(changes).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
 }
 
 function clearAllData(){
   if(!confirm('ลบข้อมูลตัวอย่างทั้งหมดและเริ่มต้นคลังแบบว่างเปล่าหรือไม่? การกระทำนี้จะมีผลกับทุกเครื่องที่เชื่อมต่ออยู่ และไม่สามารถย้อนกลับได้')) return;
   if(!confirm('ยืนยันอีกครั้ง: ข้อมูลวัสดุ ประวัติรับ-เบิกทั้งหมดจะถูกลบถาวร คลังจะว่างเปล่าจนกว่าคุณจะนำเข้าข้อมูลจริงเอง ต้องการดำเนินการต่อหรือไม่?')) return;
-  db.ref('inventory').set([]).catch(err=>toast('ล้างข้อมูลไม่สำเร็จ: '+err.message, true));
-  db.ref('recvHistory').set([]);
-  db.ref('issueHistory').set([]);
+  db.ref('inventory').remove().catch(err=>toast('ล้างข้อมูลไม่สำเร็จ: '+err.message, true));
+  db.ref('recvHistory').remove();
+  db.ref('issueHistory').remove();
   db.ref('meta/seeded').set(true);
   toast('ล้างข้อมูลตัวอย่างเรียบร้อย พร้อมนำเข้าข้อมูลจริงได้เลย');
 }
@@ -1149,9 +1244,9 @@ function resetDemoData(){
   if(!confirm('ล้างข้อมูลทั้งหมดและเริ่มต้นใหม่หรือไม่? การกระทำนี้จะมีผลกับทุกเครื่องที่เชื่อมต่ออยู่ และไม่สามารถย้อนกลับได้')) return;
   if(!confirm('ยืนยันอีกครั้ง: ข้อมูลคลังวัสดุ ประวัติรับ-เบิกทั้งหมดจะถูกลบถาวรและแทนที่ด้วยข้อมูลตัวอย่าง ต้องการดำเนินการต่อหรือไม่?')) return;
   const fresh = seedData();
-  db.ref('inventory').set(fresh).catch(err=>toast('ล้างข้อมูลไม่สำเร็จ: '+err.message, true));
-  db.ref('recvHistory').set([]);
-  db.ref('issueHistory').set([]);
+  db.ref('inventory').set(arrToObj(fresh)).catch(err=>toast('ล้างข้อมูลไม่สำเร็จ: '+err.message, true));
+  db.ref('recvHistory').remove();
+  db.ref('issueHistory').remove();
   db.ref('meta/seeded').set(true);
   toast('ล้างข้อมูลและเริ่มต้นใหม่เรียบร้อย');
 }
@@ -1386,7 +1481,7 @@ function submitReceive(){
   item.lastReceive = todayStr();
   item.receiveBy = by;
   saveInventory();
-  mirrorMaterialSnapshot();
+  mirrorMaterialRow(item);
 
   recvHistory.unshift({
     date: todayStr(), time: stampFull, itemId:item.id, code:item.code, description:item.description,
@@ -1485,9 +1580,9 @@ function submitIssue(){
         OldStock:before, Qty:c.qty, NewStock:item.stock, User:email, Department:dept
       });
     }
+    mirrorMaterialRow(item);
   });
   saveInventory(); saveIssue();
-  mirrorMaterialSnapshot();
 
   // "send email" — open mailto draft with the requisition slip
   if(email){
@@ -1539,7 +1634,7 @@ function submitQaReceive(){
   item.lastReceive = todayStr();
   item.receiveBy = by;
   saveInventory();
-  mirrorMaterialSnapshot();
+  mirrorMaterialRow(item);
   recvHistory.unshift({ date:todayStr(), time:stampFull, itemId:item.id, code:item.code, description:item.description, by, qty, price, stockBefore:before, stockAfter:item.stock, docNo });
   saveRecv();
   sheetsAppendRow('Receive', {
@@ -1569,7 +1664,7 @@ function submitQaIssue(){
   const docNo = genDocNo('ISS');
   item.stock -= qty;
   saveInventory();
-  mirrorMaterialSnapshot();
+  mirrorMaterialRow(item);
   const stamp = nowStamp(); const date = todayStr();
   issueHistory.unshift({ date, time:stamp, itemId:item.id, code:item.code, description:item.description, by, dept, email, qty, stockBefore:before, stockAfter:item.stock, docNo });
   saveIssue();
@@ -1851,7 +1946,7 @@ function cancelReceive(docNo){
     const before = item.stock;
     item.stock = Math.max(0, item.stock - rec.qty);
     saveInventory();
-    mirrorMaterialSnapshot();
+    mirrorMaterialRow(item);
     sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'CANCEL_RECEIVE', DocumentNo:rec.docNo, Remark:rec.code, OldStock:before, Qty:-rec.qty, NewStock:item.stock, User:rec.by, Department:'' });
   }
   rec.canceled = true;
@@ -1869,7 +1964,7 @@ function cancelIssue(docNo){
     const before = item.stock;
     item.stock = item.stock + rec.qty;
     saveInventory();
-    mirrorMaterialSnapshot();
+    mirrorMaterialRow(item);
     sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'CANCEL_ISSUE', DocumentNo:rec.docNo, Remark:rec.code, OldStock:before, Qty:rec.qty, NewStock:item.stock, User:rec.by, Department:rec.dept||'' });
   }
   rec.canceled = true;
@@ -1917,7 +2012,7 @@ function saveEditHist(){
       item.stock = newStock;
       if(newPrice>0) item.price = newPrice;
       saveInventory();
-      mirrorMaterialSnapshot();
+      mirrorMaterialRow(item);
       sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'EDIT_RECEIVE', DocumentNo:docNo, Remark:rec.code, OldStock:before, Qty:qtyDelta, NewStock:item.stock, User:newBy, Department:'' });
       rec.stockAfter = item.stock;
     }
@@ -1935,7 +2030,7 @@ function saveEditHist(){
       if(newStock<0){ toast('แก้ไขไม่ได้: สต็อกไม่พอ', true); return; }
       item.stock = newStock;
       saveInventory();
-      mirrorMaterialSnapshot();
+      mirrorMaterialRow(item);
       sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'EDIT_ISSUE', DocumentNo:docNo, Remark:rec.code, OldStock:before, Qty:-qtyDelta, NewStock:item.stock, User:newBy, Department:newDept });
       rec.stockAfter = item.stock;
     }
