@@ -759,6 +759,22 @@ tbody tr:hover{background:#FAFBFD;}
   </div>
 </div>
 
+<!-- Edit past receive/issue record modal -->
+<div class="modal-bg" id="editHistModalBg">
+  <div class="modal">
+    <div class="modal-head"><h3 id="editHistTitle">แก้ไขรายการ</h3><span class="modal-close" onclick="closeEditHist()">&times;</span></div>
+    <input type="hidden" id="editHistType">
+    <input type="hidden" id="editHistDocNo">
+    <div class="field"><label>รหัสวัสดุ</label><div class="mono" id="editHistCode" style="font-weight:700;"></div></div>
+    <div class="field"><label>จำนวน</label><input type="number" id="editHistQty" min="1"></div>
+    <div class="field" id="editHistPriceWrap"><label>ราคาต่อหน่วย</label><input type="number" id="editHistPrice" min="0" step="0.01"></div>
+    <div class="field"><label id="editHistByLabel">ผู้ทำรายการ</label><input type="text" id="editHistBy"></div>
+    <div class="field" id="editHistDeptWrap" style="display:none;"><label>แผนก</label><input type="text" id="editHistDept"></div>
+    <div class="helper">แก้ไขจำนวนจะปรับ Stock ปัจจุบันให้อัตโนมัติตามส่วนต่าง และบันทึกลง AuditLog ว่ามีการแก้ไข</div>
+    <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px; margin-top:10px;" onclick="saveEditHist()">&#10003; บันทึกการแก้ไข</button>
+  </div>
+</div>
+
 <!-- Quick action modal: opened when a QR/URL for a specific item is scanned from any camera app -->
 <div class="modal-bg" id="qaModalBg">
   <div class="modal">
@@ -915,6 +931,7 @@ function loadAll(){
 }
 function onDataChange(){
   if(!(dataReady.inv && dataReady.recv && dataReady.issue)) return;
+  if(firstLoad) ensureHistoryDocNos();
   renderAll();
   scheduleMirrorToSheets();
   if(firstLoad){
@@ -1784,24 +1801,150 @@ function renderHistory(){
   const head = document.getElementById('histHead');
   const body = document.getElementById('histBody');
   if(activeHistTab==='receive'){
-    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>ผู้รับเข้า</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>Stock ก่อน&rarr;หลัง</th></tr>`;
+    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>ผู้รับเข้า</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>Stock ก่อน&rarr;หลัง</th><th>สถานะ</th><th></th></tr>`;
     let rows = recvHistory.filter(h=> !q || h.code.toLowerCase().includes(q) || h.by.toLowerCase().includes(q));
     body.innerHTML = rows.length ? rows.map(h=>`
-      <tr><td style="white-space:nowrap; font-size:12px;">${h.time}</td>
+      <tr style="${h.canceled?'opacity:.5;':''}">
+      <td style="white-space:nowrap; font-size:12px;">${h.time}</td>
       <td><span class="code-tag">${h.code}</span></td><td>${h.description}</td><td>${h.by}</td>
       <td class="mono">+${h.qty}</td><td class="mono">${fmtMoney(h.price)}</td>
-      <td class="mono">${h.stockBefore} &rarr; ${h.stockAfter}</td></tr>`).join('')
-      : `<tr><td colspan="7" class="empty-note">ไม่มีประวัติการรับสินค้า</td></tr>`;
+      <td class="mono">${h.stockBefore} &rarr; ${h.stockAfter}</td>
+      <td>${h.canceled?'<span class="pill pill-zero">ยกเลิกแล้ว</span>':'<span class="pill pill-ok">ปกติ</span>'}</td>
+      <td style="white-space:nowrap;">${h.canceled?'':`
+        <button class="btn btn-sm" onclick="openEditHist('recv','${h.docNo}')">แก้ไข</button>
+        <button class="btn btn-sm btn-danger" onclick="cancelReceive('${h.docNo}')">ยกเลิก</button>`}</td>
+      </tr>`).join('')
+      : `<tr><td colspan="9" class="empty-note">ไม่มีประวัติการรับสินค้า</td></tr>`;
   } else {
-    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>ผู้เบิก</th><th>แผนก</th><th>จำนวน</th><th>Stock ก่อน&rarr;หลัง</th></tr>`;
+    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>ผู้เบิก</th><th>แผนก</th><th>จำนวน</th><th>Stock ก่อน&rarr;หลัง</th><th>สถานะ</th><th></th></tr>`;
     let rows = issueHistory.filter(h=> !q || h.code.toLowerCase().includes(q) || h.by.toLowerCase().includes(q));
     body.innerHTML = rows.length ? rows.map(h=>`
-      <tr><td style="white-space:nowrap; font-size:12px;">${h.time}</td>
+      <tr style="${h.canceled?'opacity:.5;':''}">
+      <td style="white-space:nowrap; font-size:12px;">${h.time}</td>
       <td><span class="code-tag">${h.code}</span></td><td>${h.description}</td><td>${h.by}</td><td>${h.dept||'-'}</td>
       <td class="mono">-${h.qty}</td>
-      <td class="mono">${h.stockBefore} &rarr; ${h.stockAfter}</td></tr>`).join('')
-      : `<tr><td colspan="7" class="empty-note">ไม่มีประวัติการเบิกสินค้า</td></tr>`;
+      <td class="mono">${h.stockBefore} &rarr; ${h.stockAfter}</td>
+      <td>${h.canceled?'<span class="pill pill-zero">ยกเลิกแล้ว</span>':'<span class="pill pill-ok">ปกติ</span>'}</td>
+      <td style="white-space:nowrap;">${h.canceled?'':`
+        <button class="btn btn-sm" onclick="openEditHist('issue','${h.docNo}')">แก้ไข</button>
+        <button class="btn btn-sm btn-danger" onclick="cancelIssue('${h.docNo}')">ยกเลิก</button>`}</td>
+      </tr>`).join('')
+      : `<tr><td colspan="9" class="empty-note">ไม่มีประวัติการเบิกสินค้า</td></tr>`;
   }
+}
+
+/* ---------- edit / cancel a past receive or issue record ---------- */
+function ensureHistoryDocNos(){
+  let changedR=false, changedI=false;
+  recvHistory.forEach(h=>{ if(!h.docNo){ h.docNo = genDocNo('RCV'); changedR=true; } });
+  issueHistory.forEach(h=>{ if(!h.docNo){ h.docNo = genDocNo('ISS'); changedI=true; } });
+  if(changedR) saveRecv();
+  if(changedI) saveIssue();
+}
+
+function cancelReceive(docNo){
+  const rec = recvHistory.find(h=>h.docNo===docNo);
+  if(!rec || rec.canceled) return;
+  if(!confirm(`ยกเลิกรายการรับ ${rec.code} จำนวน ${rec.qty} ชิ้น ใช่หรือไม่? สต็อกจะถูกปรับลดกลับ`)) return;
+  const item = inventory.find(i=>i.id===rec.itemId || i.code===rec.code);
+  if(item){
+    const before = item.stock;
+    item.stock = Math.max(0, item.stock - rec.qty);
+    saveInventory();
+    mirrorMaterialSnapshot();
+    sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'CANCEL_RECEIVE', DocumentNo:rec.docNo, Remark:rec.code, OldStock:before, Qty:-rec.qty, NewStock:item.stock, User:rec.by, Department:'' });
+  }
+  rec.canceled = true;
+  saveRecv();
+  toast(`ยกเลิกรายการรับ ${rec.code} เรียบร้อย`);
+  renderHistory(); renderDashboard();
+}
+
+function cancelIssue(docNo){
+  const rec = issueHistory.find(h=>h.docNo===docNo);
+  if(!rec || rec.canceled) return;
+  if(!confirm(`ยกเลิกรายการเบิก ${rec.code} จำนวน ${rec.qty} ชิ้น ใช่หรือไม่? สต็อกจะถูกคืนกลับ`)) return;
+  const item = inventory.find(i=>i.id===rec.itemId || i.code===rec.code);
+  if(item){
+    const before = item.stock;
+    item.stock = item.stock + rec.qty;
+    saveInventory();
+    mirrorMaterialSnapshot();
+    sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'CANCEL_ISSUE', DocumentNo:rec.docNo, Remark:rec.code, OldStock:before, Qty:rec.qty, NewStock:item.stock, User:rec.by, Department:rec.dept||'' });
+  }
+  rec.canceled = true;
+  saveIssue();
+  toast(`ยกเลิกรายการเบิก ${rec.code} เรียบร้อย`);
+  renderHistory(); renderDashboard();
+}
+
+function openEditHist(type, docNo){
+  const rec = type==='recv' ? recvHistory.find(h=>h.docNo===docNo) : issueHistory.find(h=>h.docNo===docNo);
+  if(!rec || rec.canceled) return;
+  document.getElementById('editHistType').value = type;
+  document.getElementById('editHistDocNo').value = docNo;
+  document.getElementById('editHistCode').textContent = rec.code + ' — ' + rec.description;
+  document.getElementById('editHistQty').value = rec.qty;
+  document.getElementById('editHistBy').value = rec.by;
+  document.getElementById('editHistTitle').textContent = type==='recv' ? 'แก้ไขรายการรับสินค้า' : 'แก้ไขรายการเบิกสินค้า';
+  document.getElementById('editHistByLabel').textContent = type==='recv' ? 'ผู้รับเข้า' : 'ผู้เบิก';
+  document.getElementById('editHistPriceWrap').style.display = type==='recv' ? 'block' : 'none';
+  document.getElementById('editHistPrice').value = rec.price||0;
+  document.getElementById('editHistDeptWrap').style.display = type==='issue' ? 'block' : 'none';
+  document.getElementById('editHistDept').value = rec.dept||'';
+  document.getElementById('editHistModalBg').classList.add('show');
+}
+function closeEditHist(){ document.getElementById('editHistModalBg').classList.remove('show'); }
+
+function saveEditHist(){
+  const type = document.getElementById('editHistType').value;
+  const docNo = document.getElementById('editHistDocNo').value;
+  const newQty = parseInt(document.getElementById('editHistQty').value)||0;
+  const newBy = document.getElementById('editHistBy').value.trim();
+  if(newQty<=0){ toast('กรุณากรอกจำนวนให้ถูกต้อง', true); return; }
+  if(!newBy){ toast('กรุณากรอกชื่อผู้ทำรายการ', true); return; }
+
+  if(type==='recv'){
+    const rec = recvHistory.find(h=>h.docNo===docNo);
+    if(!rec || rec.canceled) return;
+    const newPrice = parseFloat(document.getElementById('editHistPrice').value)||0;
+    const item = inventory.find(i=>i.id===rec.itemId || i.code===rec.code);
+    const qtyDelta = newQty - rec.qty;
+    if(item){
+      const before = item.stock;
+      const newStock = item.stock + qtyDelta;
+      if(newStock<0){ toast('แก้ไขไม่ได้: สต็อกจะติดลบ', true); return; }
+      item.stock = newStock;
+      if(newPrice>0) item.price = newPrice;
+      saveInventory();
+      mirrorMaterialSnapshot();
+      sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'EDIT_RECEIVE', DocumentNo:docNo, Remark:rec.code, OldStock:before, Qty:qtyDelta, NewStock:item.stock, User:newBy, Department:'' });
+      rec.stockAfter = item.stock;
+    }
+    rec.qty = newQty; rec.price = newPrice; rec.by = newBy;
+    saveRecv();
+  } else {
+    const rec = issueHistory.find(h=>h.docNo===docNo);
+    if(!rec || rec.canceled) return;
+    const newDept = document.getElementById('editHistDept').value.trim();
+    const item = inventory.find(i=>i.id===rec.itemId || i.code===rec.code);
+    const qtyDelta = newQty - rec.qty; // issuing MORE reduces stock further
+    if(item){
+      const before = item.stock;
+      const newStock = item.stock - qtyDelta;
+      if(newStock<0){ toast('แก้ไขไม่ได้: สต็อกไม่พอ', true); return; }
+      item.stock = newStock;
+      saveInventory();
+      mirrorMaterialSnapshot();
+      sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'EDIT_ISSUE', DocumentNo:docNo, Remark:rec.code, OldStock:before, Qty:-qtyDelta, NewStock:item.stock, User:newBy, Department:newDept });
+      rec.stockAfter = item.stock;
+    }
+    rec.qty = newQty; rec.by = newBy; rec.dept = newDept;
+    saveIssue();
+  }
+  closeEditHist();
+  toast('แก้ไขรายการเรียบร้อย');
+  renderHistory(); renderDashboard();
 }
 
 /* =========================================================
