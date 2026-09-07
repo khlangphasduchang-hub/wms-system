@@ -410,8 +410,13 @@ tbody tr:hover{background:#FAFBFD;}
       <div class="grid-2">
         <div class="card">
           <div class="card-head">
-            <h3>แนวโน้มรับเข้า – เบิกจ่าย (12 เดือนล่าสุด)</h3>
+            <h3 id="movementChartTitle">แนวโน้มรับเข้า – เบิกจ่าย (12 เดือนล่าสุด)</h3>
             <span class="card-link" onclick="goPanel('history')">ดูประวัติทั้งหมด &rarr;</span>
+          </div>
+          <div class="tabs" style="margin-bottom:10px;">
+            <div class="tab" data-gran="day" onclick="setChartGranularity('day')">รายวัน</div>
+            <div class="tab active" data-gran="month" onclick="setChartGranularity('month')">รายเดือน</div>
+            <div class="tab" data-gran="year" onclick="setChartGranularity('year')">รายปี</div>
           </div>
           <canvas id="movementChart" height="150"></canvas>
         </div>
@@ -481,7 +486,7 @@ tbody tr:hover{background:#FAFBFD;}
             <label>สต็อกใหม่หลังบันทึก</label>
             <div class="mono" id="recvPreview" style="font-size:19px; font-weight:700;">—</div>
           </div>
-          <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;" onclick="submitReceive()">&#10003; บันทึกรับสินค้า</button>
+          <button class="btn btn-primary" id="recvSubmitBtn" style="width:100%; justify-content:center; padding:11px;" onclick="submitReceive()">&#10003; บันทึกรับสินค้า</button>
         </div>
       </div>
     </section>
@@ -531,7 +536,7 @@ tbody tr:hover{background:#FAFBFD;}
               <input type="email" id="issueEmail" placeholder="name@company.com">
             </div>
           </div>
-          <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;" onclick="submitIssue()">&#10003; ยืนยันการเบิก &amp; ส่งอีเมล</button>
+          <button class="btn btn-primary" id="issueSubmitBtn" style="width:100%; justify-content:center; padding:11px;" onclick="submitIssue()">&#10003; ยืนยันการเบิก &amp; ส่งอีเมล</button>
           <div class="helper">ระบบจะเปิดร่างอีเมล (mailto) พร้อมรายการเบิกให้อัตโนมัติหลังยืนยัน</div>
         </div>
       </div>
@@ -1359,24 +1364,49 @@ function goWarehouseLowStock(){
 }
 
 let movementChartInst=null, typeChartInst=null;
+let chartGranularity = 'month';
+function setChartGranularity(g){
+  chartGranularity = g;
+  document.querySelectorAll('.tab[data-gran]').forEach(t=>t.classList.toggle('active', t.dataset.gran===g));
+  renderMovementChart();
+}
 function renderMovementChart(){
-  const months = [];
   const now = new Date();
-  for(let i=11;i>=0;i--){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.push({key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'), label:d.toLocaleDateString('th-TH',{month:'short'})});
+  const buckets = [];
+  const titleEl = document.getElementById('movementChartTitle');
+
+  if(chartGranularity==='day'){
+    for(let i=29;i>=0;i--){
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()-i);
+      const key = d.toISOString().slice(0,10);
+      buckets.push({key, label: d.toLocaleDateString('th-TH',{day:'numeric',month:'short'}), matchLen:10});
+    }
+    titleEl.textContent = 'แนวโน้มรับเข้า – เบิกจ่าย (30 วันล่าสุด)';
+  } else if(chartGranularity==='year'){
+    for(let i=4;i>=0;i--){
+      const y = now.getFullYear()-i;
+      buckets.push({key:String(y), label:String(y+543), matchLen:4}); // display as Buddhist year, matches app's th-TH date style
+    }
+    titleEl.textContent = 'แนวโน้มรับเข้า – เบิกจ่าย (5 ปีล่าสุด)';
+  } else {
+    for(let i=11;i>=0;i--){
+      const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+      buckets.push({key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'), label:d.toLocaleDateString('th-TH',{month:'short'}), matchLen:7});
+    }
+    titleEl.textContent = 'แนวโน้มรับเข้า – เบิกจ่าย (12 เดือนล่าสุด)';
   }
-  const recvByMonth = months.map(m=>recvHistory.filter(h=>h.date.slice(0,7)===m.key && !h.canceled).reduce((s,h)=>s+h.qty,0));
-  const issueByMonth = months.map(m=>issueHistory.filter(h=>h.date.slice(0,7)===m.key && !h.canceled).reduce((s,h)=>s+h.qty,0));
+
+  const recvByBucket = buckets.map(b=>recvHistory.filter(h=>h.date.slice(0,b.matchLen)===b.key && !h.canceled).reduce((s,h)=>s+h.qty,0));
+  const issueByBucket = buckets.map(b=>issueHistory.filter(h=>h.date.slice(0,b.matchLen)===b.key && !h.canceled).reduce((s,h)=>s+h.qty,0));
 
   const ctx = document.getElementById('movementChart');
   if(movementChartInst) movementChartInst.destroy();
   movementChartInst = new Chart(ctx, {
     type:'bar',
-    data:{ labels: months.map(m=>m.label),
+    data:{ labels: buckets.map(b=>b.label),
       datasets:[
-        {label:'รับเข้า', data:recvByMonth, backgroundColor:'#1E9E6B', borderRadius:4, barPercentage:0.55},
-        {label:'เบิกออก', data:issueByMonth, backgroundColor:'#E5484D', borderRadius:4, barPercentage:0.55},
+        {label:'รับเข้า', data:recvByBucket, backgroundColor:'#1E9E6B', borderRadius:4, barPercentage:0.55},
+        {label:'เบิกออก', data:issueByBucket, backgroundColor:'#E5484D', borderRadius:4, barPercentage:0.55},
       ]},
     options:{ plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, grid:{color:'#EEF0F4'}}, x:{grid:{display:false}} } }
   });
@@ -1465,6 +1495,8 @@ function updateRecvPreview(){
    RECEIVE
    ========================================================= */
 function submitReceive(){
+  const btn = document.getElementById('recvSubmitBtn');
+  if(btn.disabled) return; // already processing this click — ignore repeats
   const item = pickedItem.recv;
   if(!item){ toast('กรุณาเลือกวัสดุก่อน', true); return; }
   const by = document.getElementById('recvBy').value.trim();
@@ -1472,6 +1504,9 @@ function submitReceive(){
   const price = parseFloat(document.getElementById('recvPrice').value)||0;
   if(!by){ toast('กรุณากรอกชื่อผู้รับเข้า', true); return; }
   if(qty<=0){ toast('กรุณากรอกจำนวนรับเข้าให้ถูกต้อง', true); return; }
+  btn.disabled = true;
+  const originalBtnText = btn.innerHTML;
+  btn.innerHTML = 'กำลังบันทึก...';
 
   const before = item.stock;
   const docNo = genDocNo('RCV');
@@ -1505,6 +1540,8 @@ function submitReceive(){
   document.getElementById('recvPicked').innerHTML='';
   pickedItem.recv=null;
   renderDashboard();
+  btn.disabled = false;
+  btn.innerHTML = originalBtnText;
 }
 
 /* =========================================================
@@ -1542,6 +1579,8 @@ function renderCart(){
     </div>`).join('') : '<div class="empty-note">ยังไม่มีรายการในใบเบิก</div>';
 }
 function submitIssue(){
+  const btn = document.getElementById('issueSubmitBtn');
+  if(btn.disabled) return; // already processing this click — ignore repeats
   if(!cart.length){ toast('กรุณาเพิ่มรายการลงใบเบิกก่อน', true); return; }
   const by = document.getElementById('issueBy').value.trim();
   const dept = document.getElementById('issueDept').value.trim();
@@ -1553,6 +1592,9 @@ function submitIssue(){
     const item = inventory.find(i=>i.id===c.itemId);
     if(!item || c.qty>item.stock){ toast(`Stock ของ ${c.code} ไม่เพียงพอแล้ว`, true); return; }
   }
+  btn.disabled = true;
+  const originalBtnText = btn.innerHTML;
+  btn.innerHTML = 'กำลังบันทึก...';
 
   const stamp = nowStamp(); const date = todayStr();
   let emailLines = [];
@@ -1595,6 +1637,8 @@ function submitIssue(){
   cart = []; renderCart();
   document.getElementById('issueBy').value=''; document.getElementById('issueDept').value=''; document.getElementById('issueEmail').value='';
   renderDashboard();
+  btn.disabled = false;
+  btn.innerHTML = originalBtnText;
 }
 
 /* =========================================================
