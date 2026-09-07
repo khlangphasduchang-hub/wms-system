@@ -1515,14 +1515,13 @@ function submitReceive(){
   if(price>0) item.price = price;
   item.lastReceive = todayStr();
   item.receiveBy = by;
-  saveInventory();
+  saveInventoryItem(item);
   mirrorMaterialRow(item);
 
-  recvHistory.unshift({
+  pushRecv({
     date: todayStr(), time: stampFull, itemId:item.id, code:item.code, description:item.description,
     by, qty, price, stockBefore:before, stockAfter:item.stock, docNo
   });
-  saveRecv();
   sheetsAppendRow('Receive', {
     Date:stampFull, Remark:item.code, Description:item.description, Qty:qty,
     Price:(price||item.price), Amount:(price||item.price)*qty, ReceiveBy:by, ReceiptNo:docNo,
@@ -1598,12 +1597,14 @@ function submitIssue(){
 
   const stamp = nowStamp(); const date = todayStr();
   let emailLines = [];
+  const changedItems = [];
   cart.forEach(c=>{
     const item = inventory.find(i=>i.id===c.itemId);
     const before = item.stock;
     const docNo = genDocNo('ISS');
     item.stock -= c.qty;
-    issueHistory.unshift({
+    changedItems.push(item);
+    pushIssue({
       date, time:stamp, itemId:item.id, code:item.code, description:item.description,
       by, dept, email, qty:c.qty, stockBefore:before, stockAfter:item.stock, docNo
     });
@@ -1624,7 +1625,7 @@ function submitIssue(){
     }
     mirrorMaterialRow(item);
   });
-  saveInventory(); saveIssue();
+  saveInventoryItems(changedItems);
 
   // "send email" — open mailto draft with the requisition slip
   if(email){
@@ -1677,10 +1678,9 @@ function submitQaReceive(){
   if(price>0) item.price = price;
   item.lastReceive = todayStr();
   item.receiveBy = by;
-  saveInventory();
+  saveInventoryItem(item);
   mirrorMaterialRow(item);
-  recvHistory.unshift({ date:todayStr(), time:stampFull, itemId:item.id, code:item.code, description:item.description, by, qty, price, stockBefore:before, stockAfter:item.stock, docNo });
-  saveRecv();
+  pushRecv({ date:todayStr(), time:stampFull, itemId:item.id, code:item.code, description:item.description, by, qty, price, stockBefore:before, stockAfter:item.stock, docNo });
   sheetsAppendRow('Receive', {
     Date:stampFull, Remark:item.code, Description:item.description, Qty:qty,
     Price:(price||item.price), Amount:(price||item.price)*qty, ReceiveBy:by, ReceiptNo:docNo,
@@ -1707,11 +1707,10 @@ function submitQaIssue(){
   const before = item.stock;
   const docNo = genDocNo('ISS');
   item.stock -= qty;
-  saveInventory();
+  saveInventoryItem(item);
   mirrorMaterialRow(item);
   const stamp = nowStamp(); const date = todayStr();
-  issueHistory.unshift({ date, time:stamp, itemId:item.id, code:item.code, description:item.description, by, dept, email, qty, stockBefore:before, stockAfter:item.stock, docNo });
-  saveIssue();
+  pushIssue({ date, time:stamp, itemId:item.id, code:item.code, description:item.description, by, dept, email, qty, stockBefore:before, stockAfter:item.stock, docNo });
   sheetsAppendRow('Issue', {
     Date:stamp, Remark:item.code, Description:item.description, Qty:qty,
     IssueBy:by, ReceiptNo:docNo, Unit:'', Remain:item.stock, Department:dept
@@ -1808,14 +1807,18 @@ function saveItem(){
   const machine = document.getElementById('itemMachine').value.trim();
   if(!code || !description){ toast('กรุณากรอกรหัสและรายละเอียดวัสดุ', true); return; }
 
+  let savedItem;
   if(editId){
     const item = inventory.find(i=>i.id===editId);
     Object.assign(item, {type, description, stock, max, price, supplier, machine});
+    savedItem = item;
   } else {
     if(inventory.some(i=>i.code===code)){ toast('รหัสวัสดุนี้มีอยู่แล้ว', true); return; }
-    inventory.push({id:code, code, type, description, stock, max, price, supplier, machine});
+    savedItem = {id:code, code, type, description, stock, max, price, supplier, machine};
+    inventory.push(savedItem);
   }
-  saveInventory();
+  saveInventoryItem(savedItem);
+  mirrorMaterialRow(savedItem);
   closeItemModal();
   renderWarehouse(); renderDashboard();
   toast('บันทึกวัสดุเรียบร้อย');
@@ -1974,11 +1977,8 @@ function renderHistory(){
 
 /* ---------- edit / cancel a past receive or issue record ---------- */
 function ensureHistoryDocNos(){
-  let changedR=false, changedI=false;
-  recvHistory.forEach(h=>{ if(!h.docNo){ h.docNo = genDocNo('RCV'); changedR=true; } });
-  issueHistory.forEach(h=>{ if(!h.docNo){ h.docNo = genDocNo('ISS'); changedI=true; } });
-  if(changedR) saveRecv();
-  if(changedI) saveIssue();
+  recvHistory.forEach(h=>{ if(!h.docNo && h._key){ h.docNo = genDocNo('RCV'); updateRecvRecord(h._key, {docNo:h.docNo}); } });
+  issueHistory.forEach(h=>{ if(!h.docNo && h._key){ h.docNo = genDocNo('ISS'); updateIssueRecord(h._key, {docNo:h.docNo}); } });
 }
 
 function cancelReceive(docNo){
@@ -1989,12 +1989,12 @@ function cancelReceive(docNo){
   if(item){
     const before = item.stock;
     item.stock = Math.max(0, item.stock - rec.qty);
-    saveInventory();
+    saveInventoryItem(item);
     mirrorMaterialRow(item);
     sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'CANCEL_RECEIVE', DocumentNo:rec.docNo, Remark:rec.code, OldStock:before, Qty:-rec.qty, NewStock:item.stock, User:rec.by, Department:'' });
   }
   rec.canceled = true;
-  saveRecv();
+  updateRecvRecord(rec._key, {canceled:true});
   toast(`ยกเลิกรายการรับ ${rec.code} เรียบร้อย`);
   renderHistory(); renderDashboard();
 }
@@ -2007,12 +2007,12 @@ function cancelIssue(docNo){
   if(item){
     const before = item.stock;
     item.stock = item.stock + rec.qty;
-    saveInventory();
+    saveInventoryItem(item);
     mirrorMaterialRow(item);
     sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'CANCEL_ISSUE', DocumentNo:rec.docNo, Remark:rec.code, OldStock:before, Qty:rec.qty, NewStock:item.stock, User:rec.by, Department:rec.dept||'' });
   }
   rec.canceled = true;
-  saveIssue();
+  updateIssueRecord(rec._key, {canceled:true});
   toast(`ยกเลิกรายการเบิก ${rec.code} เรียบร้อย`);
   renderHistory(); renderDashboard();
 }
@@ -2055,13 +2055,13 @@ function saveEditHist(){
       if(newStock<0){ toast('แก้ไขไม่ได้: สต็อกจะติดลบ', true); return; }
       item.stock = newStock;
       if(newPrice>0) item.price = newPrice;
-      saveInventory();
+      saveInventoryItem(item);
       mirrorMaterialRow(item);
       sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'EDIT_RECEIVE', DocumentNo:docNo, Remark:rec.code, OldStock:before, Qty:qtyDelta, NewStock:item.stock, User:newBy, Department:'' });
       rec.stockAfter = item.stock;
     }
     rec.qty = newQty; rec.price = newPrice; rec.by = newBy;
-    saveRecv();
+    updateRecvRecord(rec._key, {qty:newQty, price:newPrice, by:newBy, stockAfter:rec.stockAfter});
   } else {
     const rec = issueHistory.find(h=>h.docNo===docNo);
     if(!rec || rec.canceled) return;
@@ -2073,13 +2073,13 @@ function saveEditHist(){
       const newStock = item.stock - qtyDelta;
       if(newStock<0){ toast('แก้ไขไม่ได้: สต็อกไม่พอ', true); return; }
       item.stock = newStock;
-      saveInventory();
+      saveInventoryItem(item);
       mirrorMaterialRow(item);
       sheetsAppendRow('AuditLog', { Date:nowStamp(), Action:'EDIT_ISSUE', DocumentNo:docNo, Remark:rec.code, OldStock:before, Qty:-qtyDelta, NewStock:item.stock, User:newBy, Department:newDept });
       rec.stockAfter = item.stock;
     }
     rec.qty = newQty; rec.by = newBy; rec.dept = newDept;
-    saveIssue();
+    updateIssueRecord(rec._key, {qty:newQty, by:newBy, dept:newDept, stockAfter:rec.stockAfter});
   }
   closeEditHist();
   toast('แก้ไขรายการเรียบร้อย');
