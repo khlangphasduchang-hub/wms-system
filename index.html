@@ -1885,7 +1885,10 @@ function startScan(){
     ];
   }catch(e){ formatsToSupport = undefined; } // scanner library still supports QR at minimum without this
   try{
-    html5QrInstance = new Html5Qrcode('reader', formatsToSupport ? { formatsToSupport, verbose:false } : undefined);
+    html5QrInstance = new Html5Qrcode('reader', formatsToSupport ? {
+      formatsToSupport, verbose:false,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true } // use the phone's native barcode engine when the browser supports it — much more reliable for 1D barcodes than the JS-only decoder
+    } : undefined);
   }catch(e){
     toast('ไม่สามารถเปิดตัวสแกนได้ ลองรีเฟรชหน้าเว็บแล้วลองใหม่', true);
     document.getElementById('scanStartBtn').style.display='inline-flex';
@@ -1894,7 +1897,17 @@ function startScan(){
   }
   html5QrInstance.start(
     { facingMode:'environment' },
-    { fps:10, qrbox:220 },
+    {
+      fps:15,
+      // A wide, short box instead of a square: 1D barcodes are much wider than tall, and a
+      // square crop was forcing people to back away until the whole barcode barely fit —
+      // shrinking it too small to focus on. This also still works fine for QR codes.
+      qrbox: (viewfinderWidth, viewfinderHeight) => {
+        const w = Math.min(viewfinderWidth * 0.9, 380);
+        const h = Math.min(viewfinderHeight * 0.55, 160);
+        return { width: Math.round(w), height: Math.round(h) };
+      }
+    },
     (decodedText)=>{
       const code = extractItemCode(decodedText);
       broadcastScan(code); // every open screen (this one included) reacts via the liveScan listener
@@ -1943,7 +1956,7 @@ function renderBarcodeCatalog(){
     if(!el) return;
     try{
       JsBarcode(el, i.code, {
-        format:'CODE128', height:52, width:2.2, fontSize:12, margin:8,
+        format:'CODE128', height:40, width:1.8, fontSize:11, margin:10,
         displayValue:true, lineColor:'#000000', background:'#ffffff'
       });
     }catch(err){
