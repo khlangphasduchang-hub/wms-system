@@ -1936,7 +1936,20 @@ function renderBarcodeCatalog(){
       <div class="lbl-sub">${i.code} · คงเหลือ ${i.stock} ชิ้น</div>
     </div>`).join('') : '<div class="empty-note">ไม่พบวัสดุตามเงื่อนไข</div>';
   items.forEach(i=>{
-    JsBarcode(`#bc-${CSS.escape(i.id)}`, i.code, { format:'CODE128', height:38, width:1.6, fontSize:11, margin:4 });
+    // Pass the actual SVG element (not a CSS-selector string) — this is what makes the
+    // QR catalog reliable, and avoids selector-escaping edge cases with codes like
+    // "70AIC-EVR01-002" that could otherwise leave the barcode looking drawn but empty of data.
+    const el = document.getElementById('bc-'+i.id);
+    if(!el) return;
+    try{
+      JsBarcode(el, i.code, {
+        format:'CODE128', height:52, width:2.2, fontSize:12, margin:8,
+        displayValue:true, lineColor:'#000000', background:'#ffffff'
+      });
+    }catch(err){
+      console.error('[barcode] failed for', i.code, err);
+      el.outerHTML = `<div class="empty-note" style="font-size:10px;">พิมพ์บาร์โค้ดไม่ได้: ${i.code}</div>`;
+    }
   });
 }
 
