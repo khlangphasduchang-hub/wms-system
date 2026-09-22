@@ -1170,15 +1170,36 @@ function handleIncomingScan(code){
 let scanCart = [];
 function addToScanCart(item){
   const existing = scanCart.find(c=>c.itemId===item.id);
-  if(existing){ existing.qty += 1; } else { scanCart.push({ itemId:item.id, code:item.code, description:item.description, qty:1 }); }
+  const currentQty = existing ? existing.qty : 0;
   document.getElementById('scanLastPreview').innerHTML = pickedCardHtml(item);
+  if(item.stock<=0){
+    toast(`${item.code} สินค้าหมดสต็อก ไม่สามารถเบิกได้`, true);
+    return;
+  }
+  if(currentQty >= item.stock){
+    toast(`${item.code} มีในสต็อกแค่ ${item.stock} ชิ้น เพิ่มไม่ได้อีกแล้ว`, true);
+    return;
+  }
+  if(existing){ existing.qty += 1; } else { scanCart.push({ itemId:item.id, code:item.code, description:item.description, qty:1 }); }
   renderScanCart();
   toast(existing ? `เพิ่มจำนวน ${item.code} เป็น ${existing.qty}` : `เพิ่ม ${item.code} ลงตะกร้าแล้ว`);
 }
 function removeFromScanCart(itemId){ scanCart = scanCart.filter(c=>c.itemId!==itemId); renderScanCart(); }
 function updateScanCartQty(itemId, val){
   const row = scanCart.find(c=>c.itemId===itemId);
-  if(row) row.qty = Math.max(1, parseInt(val)||1);
+  if(!row) return;
+  const item = inventory.find(i=>i.id===itemId);
+  const maxQty = item ? item.stock : 0;
+  let newQty = Math.max(1, parseInt(val)||1);
+  if(maxQty<=0){
+    toast(`${row.code} สินค้าหมดสต็อก`, true);
+    newQty = row.qty;
+  } else if(newQty > maxQty){
+    newQty = maxQty;
+    toast(`${row.code} มีในสต็อกแค่ ${maxQty} ชิ้น`, true);
+  }
+  row.qty = newQty;
+  renderScanCart();
 }
 function renderScanCart(){
   document.getElementById('scanCartCount').textContent = scanCart.length;
@@ -1946,7 +1967,7 @@ function renderBarcodeCatalog(){
     <div class="barcode-print">
       <div class="lbl-name">${i.description}</div>
       <svg id="bc-${i.id}"></svg>
-      <div class="lbl-sub">${i.code} · คงเหลือ ${i.stock} ชิ้น</div>
+      <div class="lbl-sub">${i.code}</div>
     </div>`).join('') : '<div class="empty-note">ไม่พบวัสดุตามเงื่อนไข</div>';
   items.forEach(i=>{
     // Pass the actual SVG element (not a CSS-selector string) — this is what makes the
