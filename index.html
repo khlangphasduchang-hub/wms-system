@@ -306,13 +306,23 @@ tbody tr:hover{background:#FAFBFD;}
 .catalog-search-row input{flex:1; min-width:200px;}
 .catalog-search-row select{max-width:220px;}
 .qr-print{
-  border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff;
-  display:flex; flex-direction:column; align-items:center; gap:6px;
+  border:1px solid var(--line); border-radius:6px; padding:6px; background:#fff;
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  break-inside:avoid; page-break-inside:avoid;
 }
-.qr-print .qp-canvas{width:110px; height:110px; display:flex; align-items:center; justify-content:center;}
-.qr-print .qp-name{font-size:11px; font-weight:700; text-align:center;}
-.qr-print .qp-code{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--mist);}
-.qr-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:12px;}
+.qr-print .qp-canvas{width:72px; height:72px; display:flex; align-items:center; justify-content:center;}
+.qr-print .qp-name{
+  font-size:9px; font-weight:700; text-align:center; line-height:1.25; width:100%;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.qr-print .qp-code{font-family:'JetBrains Mono',monospace; font-size:8px; color:var(--mist);}
+.qr-grid{display:grid; grid-template-columns:repeat(6,1fr); gap:6px;}
+@media print{
+  .qr-grid{display:flex !important; flex-wrap:wrap; gap:5px;}
+  .qr-print{width:15.6%; padding:5px;}
+  .barcode-grid{display:flex !important; flex-wrap:wrap; gap:5px;}
+  .barcode-print{break-inside:avoid; page-break-inside:avoid;}
+}
 
 /* ===== quick action modal (from QR/URL landing) ===== */
 .qa-tabs{display:flex; gap:8px; margin:14px 0;}
@@ -2010,7 +2020,7 @@ function renderQrCatalog(){
     </div>`).join('') : '<div class="empty-note">ไม่พบวัสดุตามเงื่อนไข</div>';
   items.forEach(i=>{
     const holder = document.getElementById('qp-'+i.id);
-    if(holder) new QRCode(holder, { text: itemQrUrl(i), width:100, height:100, colorDark:'#171B23', colorLight:'#ffffff' });
+    if(holder) new QRCode(holder, { text: itemQrUrl(i), width:72, height:72, colorDark:'#171B23', colorLight:'#ffffff' });
   });
 }
 
