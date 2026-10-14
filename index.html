@@ -317,23 +317,24 @@ tbody tr:hover{background:#FAFBFD;}
 .catalog-search-row input{flex:1; min-width:200px;}
 .catalog-search-row select{max-width:220px;}
 .qr-print{
-  border:1px solid var(--line); border-radius:6px; padding:6px; background:#fff;
-  display:flex; flex-direction:column; align-items:center; gap:2px;
+  border:1px solid var(--line); border-radius:6px; padding:8px 6px; background:#fff;
+  display:flex; flex-direction:column; align-items:center; gap:4px;
   break-inside:avoid; page-break-inside:avoid;
 }
-.qr-print .qp-canvas{width:111px; height:111px; display:flex; align-items:center; justify-content:center;}
-/* shown at its native pixel size (3px per QR module) with hard edges — scaling it made the modules blurry */
+.qr-print .qp-canvas{width:148px; height:148px; max-width:100%; display:flex; align-items:center; justify-content:center;}
+/* shown at its native pixel size (4px per QR module) with hard edges — scaling it made the modules blurry */
 .qr-print .qp-canvas canvas, .qr-print .qp-canvas img{image-rendering:pixelated; image-rendering:crisp-edges;}
 .barcode-print svg{width:100%; height:auto; display:block;}
 .qr-print .qp-name{
-  font-size:9px; font-weight:700; text-align:center; line-height:1.25; width:100%;
+  font-size:11.5px; font-weight:700; text-align:center; line-height:1.3; width:100%; min-height:2.6em; color:#000;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
-.qr-print .qp-code{font-family:'JetBrains Mono',monospace; font-size:8px; color:var(--mist);}
-.qr-grid{display:grid; grid-template-columns:repeat(5,1fr); gap:6px;}
+.qr-print .qp-code{font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; color:#222;}
+.qr-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:12px;}
 @media print{
-  .qr-grid{display:flex !important; flex-wrap:wrap; gap:5px;}
-  .qr-print{width:18.8%; padding:5px 4px;}
+  /* 4 labels per row with clear white space between them, so scanning one never overlaps its neighbour */
+  .qr-grid{display:flex !important; flex-wrap:wrap; gap:12px;}
+  .qr-print{width:calc(25% - 9px); padding:8px 6px;}
   .barcode-grid{display:flex !important; flex-wrap:wrap; gap:10px;}
   /* two labels per row, with clear white space between them so neighbouring barcodes never touch */
   .barcode-print{width:calc(50% - 5px); padding:5px 10px; gap:2px; break-inside:avoid; page-break-inside:avoid;}
@@ -2232,7 +2233,7 @@ function renderQrCatalog(){
     </div>`).join('') : '<div class="empty-note">ไม่พบวัสดุตามเงื่อนไข</div>';
   items.forEach(i=>{
     const holder = document.getElementById('qp-'+i.id);
-    if(holder) new QRCode(holder, { text: itemQrUrl(i), width:111, height:111, colorDark:'#000000', colorLight:'#ffffff', correctLevel: QRCode.CorrectLevel.M });
+    if(holder) new QRCode(holder, { text: itemQrUrl(i), width:148, height:148, colorDark:'#000000', colorLight:'#ffffff', correctLevel: QRCode.CorrectLevel.M });
   });
 }
 
