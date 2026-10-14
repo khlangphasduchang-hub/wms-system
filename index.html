@@ -310,7 +310,9 @@ tbody tr:hover{background:#FAFBFD;}
   display:flex; flex-direction:column; align-items:center; gap:2px;
   break-inside:avoid; page-break-inside:avoid;
 }
-.qr-print .qp-canvas{width:72px; height:72px; display:flex; align-items:center; justify-content:center;}
+.qr-print .qp-canvas{width:90px; height:90px; display:flex; align-items:center; justify-content:center;}
+.qr-print .qp-canvas canvas, .qr-print .qp-canvas img{width:90px !important; height:90px !important;}
+.barcode-print svg{width:100%; height:auto; display:block;}
 .qr-print .qp-name{
   font-size:9px; font-weight:700; text-align:center; line-height:1.25; width:100%;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
@@ -320,9 +322,9 @@ tbody tr:hover{background:#FAFBFD;}
 @media print{
   .qr-grid{display:flex !important; flex-wrap:wrap; gap:5px;}
   .qr-print{width:15.6%; padding:5px;}
-  .barcode-grid{display:flex !important; flex-wrap:wrap; gap:4px;}
-  /* two labels per row to save paper */
-  .barcode-print{width:calc(50% - 2px); padding:3px 4px; gap:1px; break-inside:avoid; page-break-inside:avoid;}
+  .barcode-grid{display:flex !important; flex-wrap:wrap; gap:10px;}
+  /* two labels per row, with clear white space between them so neighbouring barcodes never touch */
+  .barcode-print{width:calc(50% - 5px); padding:5px 10px; gap:2px; break-inside:avoid; page-break-inside:avoid;}
   .barcode-print .lbl-name{font-size:9px; line-height:1.2; width:100%; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
   .barcode-print .lbl-sub{font-size:8px;}
 }
@@ -512,6 +514,19 @@ tbody tr:hover{background:#FAFBFD;}
         <button class="btn" onclick="openHistoryFiltered('receive')">ประวัติรับสินค้า</button>
       </div>
 
+      <div class="card" id="recvCartCard" style="max-width:640px; display:none; margin-bottom:14px;">
+        <div class="card-head"><h3>รายการรับเข้าจากการสแกน (<span id="recvCartCount">0</span> รายการ)</h3></div>
+        <div id="recvCartList"></div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>เจ้าหน้าที่พัสดุ (ผู้รับเข้า)</label>
+          <select id="recvCartBy" class="staff-select" onchange="onStaffChange(this)"></select>
+          <span class="staff-manage" onclick="openStaffModal()">&#9881; จัดการรายชื่อเจ้าหน้าที่</span>
+        </div>
+        <button class="btn btn-primary" id="recvCartBtn" style="width:100%; justify-content:center; padding:11px;" onclick="submitRecvCart()">&#10003; บันทึกรับเข้าทั้งหมด</button>
+        <button class="btn btn-sm" style="margin-top:8px;" onclick="clearRecvCart()">ล้างรายการ</button>
+      </div>
+
       <div class="card" style="max-width:640px;">
         <label>ค้นหาวัสดุ (รหัส / รายละเอียด)</label>
         <div class="search-row">
@@ -630,13 +645,8 @@ tbody tr:hover{background:#FAFBFD;}
       <div class="topbar">
         <div>
           <h1>สแกน QR / บาร์โค้ด</h1>
-          <div class="sub">สแกนสะสมได้หลายรายการเหมือนตะกร้าเช็กเอาต์ แล้วกดเบิกทั้งหมดทีเดียว — ถ้าเปิดหน้านี้ไว้หลายเครื่องพร้อมกัน ทุกเครื่องจะเห็นรายการที่สแกนของตัวเองสะสมพร้อมกันแบบเรียลไทม์</div>
+          <div class="sub">สแกนสะสมได้หลายรายการเหมือนตะกร้าเช็กเอาต์ แล้วเลือกส่งไปหน้ารับหรือหน้าเบิกทีเดียว — ถ้าเปิดหน้านี้ไว้หลายเครื่องพร้อมกัน ทุกเครื่องจะเห็นรายการที่สแกนของตัวเองสะสมพร้อมกันแบบเรียลไทม์</div>
         </div>
-      </div>
-
-      <div class="qa-tabs" style="max-width:440px;">
-        <div class="qa-tab active" id="scanModeIssue" onclick="setScanMode('issue')">&#8593; สแกนเบิกออก</div>
-        <div class="qa-tab" id="scanModeRecv" onclick="setScanMode('recv')">&#8595; สแกนรับเข้า</div>
       </div>
 
       <div class="grid-2">
@@ -647,7 +657,7 @@ tbody tr:hover{background:#FAFBFD;}
             <button class="btn btn-primary btn-sm" id="scanStartBtn" onclick="startScan()">&#9654; เริ่มสแกน</button>
             <button class="btn btn-sm" id="scanStopBtn" onclick="stopScan()" style="display:none;">&#9724; หยุดสแกน</button>
           </div>
-          <div class="helper" style="text-align:center;">สแกนแต่ละครั้งจะเพิ่มลงตะกร้าด้านขวาอัตโนมัติ (สแกนซ้ำ = เพิ่มจำนวน) — เหมาะใช้มือถือแทนเครื่องยิงบาร์โค้ดระหว่างรอเครื่องจริง</div>
+          <div class="helper" style="text-align:center;">กล้องสแกนต่อเนื่อง เล็งป้ายไปทีละอัน มีเสียงเมื่ออ่านได้ (เอากล้องออกจากป้ายแล้วเล็งใหม่ = เพิ่มจำนวน) — อ่านได้ทั้ง QR และบาร์โค้ด</div>
           <div class="divider"></div>
           <label>หรือค้นหาด้วยรหัสวัสดุ (เพิ่มลงตะกร้าได้เช่นกัน)</label>
           <div class="search-row">
@@ -657,23 +667,15 @@ tbody tr:hover{background:#FAFBFD;}
         </div>
 
         <div class="card">
-          <div class="card-head"><h3><span id="scanCartTitle">ตะกร้าที่สแกน (เบิกออก)</span> (<span id="scanCartCount">0</span> รายการ)</h3></div>
+          <div class="card-head"><h3>ตะกร้าที่สแกน (<span id="scanCartCount">0</span> รายการ)</h3></div>
           <div id="scanLastPreview"></div>
           <div id="scanCartList"><div class="empty-note">ยังไม่มีวัสดุในตะกร้า — สแกนหรือค้นหาเพื่อเพิ่ม</div></div>
           <div class="divider"></div>
-          <div id="scanIssueAction">
-            <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;" onclick="sendScanCartToIssue()">&#8593; ไปหน้าเบิกสินค้าทั้งหมด</button>
-            <div class="helper">รายการทั้งหมดในตะกร้าจะถูกโอนไปที่ใบเบิกในหน้า "เบิกสินค้า" ให้เลือกเจ้าหน้าที่พัสดุแล้วยืนยันได้เลย</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-primary" style="flex:1; min-width:140px; justify-content:center; padding:11px; background:#1E9E6B; border-color:#1E9E6B;" onclick="sendScanCartToReceive()">&#8595; ไปหน้ารับสินค้า</button>
+            <button class="btn btn-primary" style="flex:1; min-width:140px; justify-content:center; padding:11px;" onclick="sendScanCartToIssue()">&#8593; ไปหน้าเบิกสินค้า</button>
           </div>
-          <div id="scanRecvAction" style="display:none;">
-            <div class="field">
-              <label>เจ้าหน้าที่พัสดุ (ผู้รับเข้า)</label>
-              <select id="scanRecvBy" class="staff-select" onchange="onStaffChange(this)"></select>
-              <span class="staff-manage" onclick="openStaffModal()">&#9881; จัดการรายชื่อเจ้าหน้าที่</span>
-            </div>
-            <button class="btn btn-primary" id="scanRecvBtn" style="width:100%; justify-content:center; padding:11px;" onclick="submitScanReceive()">&#10003; บันทึกรับเข้าทั้งหมด</button>
-            <div class="helper">สแกนซ้ำ = เพิ่มจำนวน ปรับจำนวนในตะกร้าได้ แล้วกดบันทึกเพื่อเพิ่มเข้าสต็อกทันที</div>
-          </div>
+          <div class="helper">สแกนต่อเนื่องได้เลย ไม่ต้องกดซ้ำ — เสร็จแล้วเลือกส่งทั้งตะกร้าไปหน้ารับหรือหน้าเบิก (ถ้าหน้าเบิก ของที่หมดสต็อกจะถูกข้ามให้เอง)</div>
         </div>
       </div>
     </section>
@@ -1163,7 +1165,9 @@ function initLiveScanListener(){
   });
 }
 function broadcastScan(code){
-  db.ref('liveScan').set({ code, ts: Date.now() });
+  const ts = Date.now();
+  lastScanTs = ts; // this device already handled it locally — ignore the echo coming back from Firebase
+  db.ref('liveScan').set({ code, ts });
 }
 /* Accepts either a bare item code (from a printed barcode) or a full QR URL
    like https://.../?item=CODE (from the QR catalog / printed QR labels). */
@@ -1180,7 +1184,7 @@ function handleIncomingScan(code){
   const item = inventory.find(i=>i.code===code);
   const activePanel = document.querySelector('.panel.active').id;
   if(!item){
-    if(activePanel==='panel-qrcode') toast('ไม่พบวัสดุรหัส '+code+' ในระบบ', true);
+    if(activePanel==='panel-qrcode' && looksLikeItemCode(code)) toast('ไม่พบวัสดุรหัส '+code+' ในระบบ', true);
     return;
   }
   if(activePanel==='panel-receive'){
@@ -1201,92 +1205,105 @@ function handleIncomingScan(code){
 
 /* ---------- scan cart: build up multiple scanned items on this device, then send the
    whole batch to the issue panel at once (checkout-style, like a 7-Eleven scanner) ---------- */
-let scanCart = [];      // items scanned for ISSUE
-let scanRecvCart = [];  // items scanned for RECEIVE
-let scanMode = 'issue';
-function curScanCart(){ return scanMode==='recv' ? scanRecvCart : scanCart; }
-function setScanMode(mode){
-  scanMode = mode;
-  document.getElementById('scanModeIssue').classList.toggle('active', mode==='issue');
-  document.getElementById('scanModeRecv').classList.toggle('active', mode==='recv');
-  document.getElementById('scanIssueAction').style.display = mode==='issue' ? 'block' : 'none';
-  document.getElementById('scanRecvAction').style.display = mode==='recv' ? 'block' : 'none';
-  document.getElementById('scanCartTitle').textContent = mode==='recv' ? 'ตะกร้าที่สแกน (รับเข้า)' : 'ตะกร้าที่สแกน (เบิกออก)';
-  document.getElementById('scanLastPreview').innerHTML = '';
-  renderScanCart();
+let scanCart = [];   // everything scanned on this device; sent to the receive OR issue page afterwards
+let recvCart = [];   // items waiting on the receive page (sent from scan, or added there)
+function itemStockTag(c){
+  const item = inventory.find(i=>i.id===c.itemId);
+  if(item && item.stock<=0) return ' <span class="pill pill-zero">หมดสต็อก</span>';
+  if(item && c.qty>item.stock) return ' <span class="pill pill-zero">เกินสต็อก (เบิกได้ '+item.stock+')</span>';
+  return '';
 }
 function addToScanCart(item){
   document.getElementById('scanLastPreview').innerHTML = pickedCardHtml(item);
-  if(scanMode==='recv'){
-    const ex = scanRecvCart.find(c=>c.itemId===item.id);
-    if(ex){ ex.qty += 1; } else { scanRecvCart.push({ itemId:item.id, code:item.code, description:item.description, qty:1 }); }
-    renderScanCart();
-    toast(ex ? `เพิ่มจำนวน ${item.code} เป็น ${ex.qty}` : `เพิ่ม ${item.code} ลงตะกร้ารับเข้าแล้ว`);
-    return;
-  }
-  const existing = scanCart.find(c=>c.itemId===item.id);
-  const currentQty = existing ? existing.qty : 0;
-  if(item.stock<=0){
-    toast(`${item.code} สินค้าหมดสต็อก ไม่สามารถเบิกได้`, true);
-    return;
-  }
-  if(currentQty >= item.stock){
-    toast(`${item.code} มีในสต็อกแค่ ${item.stock} ชิ้น เพิ่มไม่ได้อีกแล้ว`, true);
-    return;
-  }
-  if(existing){ existing.qty += 1; } else { scanCart.push({ itemId:item.id, code:item.code, description:item.description, qty:1 }); }
+  const ex = scanCart.find(c=>c.itemId===item.id);
+  if(ex){ ex.qty += 1; } else { scanCart.push({ itemId:item.id, code:item.code, description:item.description, qty:1 }); }
   renderScanCart();
-  toast(existing ? `เพิ่มจำนวน ${item.code} เป็น ${existing.qty}` : `เพิ่ม ${item.code} ลงตะกร้าแล้ว`);
+  if(item.stock<=0) toast(`${item.code} หมดสต็อก — เบิกไม่ได้ (ส่งไปหน้ารับสินค้าได้)`, true);
+  else toast(ex ? `เพิ่มจำนวน ${item.code} เป็น ${ex.qty}` : `เพิ่ม ${item.code} ลงตะกร้าแล้ว`);
 }
-function removeFromScanCart(itemId){
-  if(scanMode==='recv') scanRecvCart = scanRecvCart.filter(c=>c.itemId!==itemId);
-  else scanCart = scanCart.filter(c=>c.itemId!==itemId);
-  renderScanCart();
-}
+function removeFromScanCart(itemId){ scanCart = scanCart.filter(c=>c.itemId!==itemId); renderScanCart(); }
 function updateScanCartQty(itemId, val){
-  const list = curScanCart();
-  const row = list.find(c=>c.itemId===itemId);
+  const row = scanCart.find(c=>c.itemId===itemId);
   if(!row) return;
-  let newQty = Math.max(1, parseInt(val)||1);
-  if(scanMode==='issue'){
-    const item = inventory.find(i=>i.id===itemId);
-    const maxQty = item ? item.stock : 0;
-    if(maxQty<=0){
-      toast(`${row.code} สินค้าหมดสต็อก`, true);
-      newQty = row.qty;
-    } else if(newQty > maxQty){
-      newQty = maxQty;
-      toast(`${row.code} มีในสต็อกแค่ ${maxQty} ชิ้น`, true);
-    }
-  }
-  row.qty = newQty;
+  row.qty = Math.max(1, parseInt(val)||1);
   renderScanCart();
 }
 function renderScanCart(){
-  const list = curScanCart();
-  document.getElementById('scanCartCount').textContent = list.length;
+  document.getElementById('scanCartCount').textContent = scanCart.length;
   const el = document.getElementById('scanCartList');
-  el.innerHTML = list.length ? list.map(c=>`
+  el.innerHTML = scanCart.length ? scanCart.map(c=>`
     <div class="cart-row">
       <span class="cc mono">${c.code}</span>
-      <span class="cd">${c.description}</span>
+      <span class="cd">${c.description}${itemStockTag(c)}</span>
       <input type="number" class="cq" min="1" value="${c.qty}" onchange="updateScanCartQty('${c.itemId}', this.value)">
       <span class="cx" onclick="removeFromScanCart('${c.itemId}')">&times;</span>
     </div>`).join('') : '<div class="empty-note">ยังไม่มีวัสดุในตะกร้า — สแกนหรือค้นหาเพื่อเพิ่ม</div>';
 }
-function submitScanReceive(){
-  const btn = document.getElementById('scanRecvBtn');
+function sendScanCartToReceive(){
+  if(!scanCart.length){ toast('ตะกร้ายังไม่มีรายการ', true); return; }
+  scanCart.forEach(sc=>{
+    const ex = recvCart.find(c=>c.itemId===sc.itemId);
+    if(ex){ ex.qty += sc.qty; } else { recvCart.push({...sc}); }
+  });
+  scanCart = []; renderScanCart();
+  document.getElementById('scanLastPreview').innerHTML = '';
+  renderRecvCart();
+  goPanel('receive');
+  toast('โอนรายการไปหน้ารับสินค้าแล้ว — ตรวจจำนวนและเลือกเจ้าหน้าที่พัสดุ');
+}
+function sendScanCartToIssue(){
+  if(!scanCart.length){ toast('ตะกร้ายังไม่มีรายการ', true); return; }
+  const adjusted = []; let moved = 0;
+  scanCart.forEach(sc=>{
+    const item = inventory.find(i=>i.id===sc.itemId);
+    const stock = item ? item.stock : 0;
+    const ex = cart.find(c=>c.itemId===sc.itemId);
+    const qty = Math.min(sc.qty, stock - (ex ? ex.qty : 0));
+    if(qty<=0){ adjusted.push(sc.code+' (ข้าม: สต็อกไม่พอ)'); return; }
+    if(ex){ ex.qty += qty; } else { cart.push({ itemId:sc.itemId, code:sc.code, description:sc.description, qty }); }
+    moved++;
+    if(qty<sc.qty) adjusted.push(sc.code+' (ลดเหลือ '+qty+')');
+  });
+  scanCart = []; renderScanCart();
+  document.getElementById('scanLastPreview').innerHTML = '';
+  renderCart();
+  goPanel('issue');
+  if(adjusted.length) toast(`โอนไปใบเบิก ${moved} รายการ — ปรับ/ข้าม: ${adjusted.join(', ')}`, true);
+  else toast('โอนรายการไปยังใบเบิกแล้ว — เลือกเจ้าหน้าที่พัสดุเพื่อยืนยัน');
+}
+
+/* ---------- receive cart (items sent from the scan page) ---------- */
+function renderRecvCart(){
+  const card = document.getElementById('recvCartCard');
+  if(!card) return;
+  card.style.display = recvCart.length ? 'block' : 'none';
+  document.getElementById('recvCartCount').textContent = recvCart.length;
+  document.getElementById('recvCartList').innerHTML = recvCart.map(c=>`
+    <div class="cart-row">
+      <span class="cc mono">${c.code}</span>
+      <span class="cd">${c.description}</span>
+      <input type="number" class="cq" min="1" value="${c.qty}" onchange="updateRecvCartQty('${c.itemId}', this.value)">
+      <span class="cx" onclick="removeFromRecvCart('${c.itemId}')">&times;</span>
+    </div>`).join('');
+}
+function updateRecvCartQty(itemId, val){
+  const row = recvCart.find(c=>c.itemId===itemId);
+  if(row){ row.qty = Math.max(1, parseInt(val)||1); renderRecvCart(); }
+}
+function removeFromRecvCart(itemId){ recvCart = recvCart.filter(c=>c.itemId!==itemId); renderRecvCart(); }
+function clearRecvCart(){ recvCart = []; renderRecvCart(); }
+function submitRecvCart(){
+  const btn = document.getElementById('recvCartBtn');
   if(btn.disabled) return;
-  if(!scanRecvCart.length){ toast('ตะกร้ายังไม่มีรายการ', true); return; }
-  const by = document.getElementById('scanRecvBy').value.trim();
+  if(!recvCart.length){ toast('ยังไม่มีรายการ', true); return; }
+  const by = document.getElementById('recvCartBy').value.trim();
   if(!by){ toast('กรุณาเลือกเจ้าหน้าที่พัสดุ', true); return; }
   btn.disabled = true;
   const originalBtnText = btn.innerHTML;
   btn.innerHTML = 'กำลังบันทึก...';
   const stampFull = nowStamp();
-  const changed = [];
-  let n = 0;
-  scanRecvCart.forEach(c=>{
+  const changed = []; let n = 0;
+  recvCart.forEach(c=>{
     const item = inventory.find(i=>i.id===c.itemId);
     if(!item) return;
     const before = item.stock;
@@ -1313,24 +1330,11 @@ function submitScanReceive(){
   });
   if(changed.length) saveInventoryItems(changed);
   toast(`บันทึกรับเข้า ${n} รายการ สำเร็จ`);
-  scanRecvCart = [];
-  document.getElementById('scanLastPreview').innerHTML = '';
-  renderScanCart();
+  recvCart = [];
+  renderRecvCart();
   renderDashboard();
   btn.disabled = false;
   btn.innerHTML = originalBtnText;
-}
-function sendScanCartToIssue(){
-  if(!scanCart.length){ toast('ตะกร้ายังไม่มีรายการ', true); return; }
-  scanCart.forEach(sc=>{
-    const existing = cart.find(c=>c.itemId===sc.itemId);
-    if(existing){ existing.qty += sc.qty; } else { cart.push({...sc}); }
-  });
-  scanCart = []; renderScanCart();
-  document.getElementById('scanLastPreview').innerHTML = '';
-  renderCart();
-  goPanel('issue');
-  toast('โอนรายการไปยังใบเบิกแล้ว — เลือกเจ้าหน้าที่พัสดุเพื่อยืนยัน');
 }
 
 /* ---------- URL quick-action: opened when scanning a printed QR label with any camera/LINE app ---------- */
@@ -2044,22 +2048,49 @@ function itemQrUrl(item){
   return location.origin + location.pathname + '?item=' + encodeURIComponent(item.code);
 }
 
+/* ---- continuous scanner: reads QR + Code128 only (the two formats this system prints).
+   Other 1D formats (ITF / EAN / Code39 ...) were removed because they "decode" parts of a
+   Code128 barcode into random digits/garbage, which is what produced "item not found" toasts. ---- */
+let lastScanCode = '', lastScanAt = 0, lastUnknownAt = 0, _audioCtx = null;
+function looksLikeItemCode(t){ return /^[A-Za-z0-9][A-Za-z0-9._-]{5,30}$/.test(t) && t.includes('-'); }
+function scanBeep(){
+  try{
+    _audioCtx = _audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const o=_audioCtx.createOscillator(), g=_audioCtx.createGain();
+    o.frequency.value=1100; g.gain.value=0.08; o.connect(g); g.connect(_audioCtx.destination);
+    o.start(); o.stop(_audioCtx.currentTime+0.09);
+  }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate(50); }catch(e){}
+}
+function onScanDecoded(decodedText){
+  const code = extractItemCode(decodedText);
+  const now = Date.now();
+  // still pointing at the same label → ignore (re-arms once the camera has looked away for ~1.5s)
+  if(code===lastScanCode && now-lastScanAt<1500){ lastScanAt = now; return; }
+  const item = inventory.find(i=>i.code===code);
+  if(!item){
+    // random mis-reads are silently ignored; only a clean item-like code that isn't in the system gets a message
+    if(looksLikeItemCode(code) && now-lastUnknownAt>3000){ lastUnknownAt = now; toast('ไม่พบวัสดุรหัส '+code+' ในระบบ', true); }
+    return;
+  }
+  lastScanCode = code; lastScanAt = now;
+  scanBeep();
+  handleIncomingScan(code);   // react right away on this device (no waiting for the network)
+  broadcastScan(code);        // and tell any other open screens
+}
 function startScan(){
   document.getElementById('scanStartBtn').style.display='none';
   document.getElementById('scanStopBtn').style.display='inline-flex';
+  lastScanCode = ''; lastScanAt = 0;
+  try{ _audioCtx = _audioCtx || new (window.AudioContext||window.webkitAudioContext)(); _audioCtx.resume(); }catch(e){}
   let formatsToSupport;
   try{
-    formatsToSupport = [
-      Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128,
-      Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.EAN_13,
-      Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A,
-      Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.ITF
-    ];
-  }catch(e){ formatsToSupport = undefined; } // scanner library still supports QR at minimum without this
+    formatsToSupport = [ Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128 ];
+  }catch(e){ formatsToSupport = undefined; }
   try{
     html5QrInstance = new Html5Qrcode('reader', formatsToSupport ? {
       formatsToSupport, verbose:false,
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true } // use the phone's native barcode engine when the browser supports it — much more reliable for 1D barcodes than the JS-only decoder
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
     } : undefined);
   }catch(e){
     toast('ไม่สามารถเปิดตัวสแกนได้ ลองรีเฟรชหน้าเว็บแล้วลองใหม่', true);
@@ -2070,21 +2101,12 @@ function startScan(){
   html5QrInstance.start(
     { facingMode:'environment' },
     {
-      fps:15,
-      // A wide, short box instead of a square: 1D barcodes are much wider than tall, and a
-      // square crop was forcing people to back away until the whole barcode barely fit —
-      // shrinking it too small to focus on. This also still works fine for QR codes.
-      qrbox: (viewfinderWidth, viewfinderHeight) => {
-        const w = Math.min(viewfinderWidth * 0.9, 380);
-        const h = Math.min(viewfinderHeight * 0.55, 160);
-        return { width: Math.round(w), height: Math.round(h) };
-      }
+      fps: 12,
+      disableFlip: true,
+      // no qrbox: the WHOLE camera frame is scanned, so labels don't have to be lined up inside a small box
+      videoConstraints: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720}, advanced:[{focusMode:'continuous'}] }
     },
-    (decodedText)=>{
-      const code = extractItemCode(decodedText);
-      broadcastScan(code); // every open screen (this one included) reacts via the liveScan listener
-      stopScan();
-    },
+    onScanDecoded,
     ()=>{}
   ).catch(err=>{
     toast('ไม่สามารถเปิดกล้องได้ (ตรวจสอบสิทธิ์การเข้าถึงกล้อง)', true);
@@ -2128,9 +2150,18 @@ function renderBarcodeCatalog(){
     if(!el) return;
     try{
       JsBarcode(el, i.code, {
-        format:'CODE128', height:40, width:1.8, fontSize:11, margin:10,
+        format:'CODE128', height:50, width:1.8, fontSize:11,
+        marginTop:6, marginBottom:4, marginLeft:16, marginRight:16,
         displayValue:true, lineColor:'#000000', background:'#ffffff'
       });
+      // make the barcode scale DOWN to fit its label (it used to be wider than the label and ran
+      // into the neighbouring barcode). viewBox keeps the bar proportions exact while resizing.
+      const bw = parseFloat(el.getAttribute('width')), bh = parseFloat(el.getAttribute('height'));
+      if(bw && bh){
+        el.setAttribute('viewBox', '0 0 '+bw+' '+bh);
+        el.removeAttribute('width'); el.removeAttribute('height');
+        el.style.width = '100%'; el.style.height = 'auto';
+      }
     }catch(err){
       console.error('[barcode] failed for', i.code, err);
       el.outerHTML = `<div class="empty-note" style="font-size:10px;">พิมพ์บาร์โค้ดไม่ได้: ${i.code}</div>`;
@@ -2161,7 +2192,7 @@ function renderQrCatalog(){
     </div>`).join('') : '<div class="empty-note">ไม่พบวัสดุตามเงื่อนไข</div>';
   items.forEach(i=>{
     const holder = document.getElementById('qp-'+i.id);
-    if(holder) new QRCode(holder, { text: itemQrUrl(i), width:72, height:72, colorDark:'#171B23', colorLight:'#ffffff' });
+    if(holder) new QRCode(holder, { text: itemQrUrl(i), width:111, height:111, colorDark:'#000000', colorLight:'#ffffff', correctLevel: QRCode.CorrectLevel.M });
   });
 }
 
