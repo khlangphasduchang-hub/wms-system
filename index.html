@@ -320,9 +320,16 @@ tbody tr:hover{background:#FAFBFD;}
 @media print{
   .qr-grid{display:flex !important; flex-wrap:wrap; gap:5px;}
   .qr-print{width:15.6%; padding:5px;}
-  .barcode-grid{display:flex !important; flex-wrap:wrap; gap:5px;}
-  .barcode-print{break-inside:avoid; page-break-inside:avoid;}
+  .barcode-grid{display:flex !important; flex-wrap:wrap; gap:4px;}
+  /* two labels per row to save paper */
+  .barcode-print{width:calc(50% - 2px); padding:3px 4px; gap:1px; break-inside:avoid; page-break-inside:avoid;}
+  .barcode-print .lbl-name{font-size:9px; line-height:1.2; width:100%; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+  .barcode-print .lbl-sub{font-size:8px;}
 }
+.staff-manage{display:inline-block; margin-top:5px; font-size:12px; font-weight:600; color:var(--blue); cursor:pointer;}
+.staff-manage:hover{text-decoration:underline;}
+.staff-row{display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border:1px solid var(--line); border-radius:8px; margin-bottom:6px; font-size:14px;}
+.staff-row .sx{color:var(--red,#E5484D); font-weight:700; cursor:pointer; padding:0 6px; font-size:18px;}
 
 /* ===== quick action modal (from QR/URL landing) ===== */
 .qa-tabs{display:flex; gap:8px; margin:14px 0;}
@@ -518,8 +525,9 @@ tbody tr:hover{background:#FAFBFD;}
           <div class="divider"></div>
           <div class="field-row">
             <div class="field">
-              <label>ชื่อผู้รับเข้า</label>
-              <input type="text" id="recvBy" placeholder="เช่น นายสมชาย">
+              <label>เจ้าหน้าที่พัสดุ (ผู้รับเข้า)</label>
+              <select id="recvBy" class="staff-select" onchange="onStaffChange(this)"></select>
+              <span class="staff-manage" onclick="openStaffModal()">&#9881; จัดการรายชื่อเจ้าหน้าที่</span>
             </div>
             <div class="field">
               <label>จำนวนรับเข้า</label>
@@ -544,7 +552,7 @@ tbody tr:hover{background:#FAFBFD;}
       <div class="topbar">
         <div>
           <h1>เบิกสินค้าออกจากคลัง</h1>
-          <div class="sub">ค้นหาวัสดุ เพิ่มลงใบเบิก แล้วยืนยันเพื่อบันทึกและออกใบเบิกทางอีเมล</div>
+          <div class="sub">ค้นหาวัสดุ เพิ่มลงใบเบิก เลือกเจ้าหน้าที่พัสดุ แล้วยืนยันเพื่อบันทึก</div>
         </div>
         <button class="btn" onclick="openHistoryFiltered('issue')">ประวัติเบิก</button>
       </div>
@@ -571,21 +579,11 @@ tbody tr:hover{background:#FAFBFD;}
           <div id="cartList"><div class="empty-note">ยังไม่มีรายการในใบเบิก</div></div>
           <div class="divider"></div>
           <div class="field">
-            <label>ชื่อผู้เบิก</label>
-            <input type="text" id="issueBy" placeholder="ชื่อ-นามสกุล">
+            <label>เจ้าหน้าที่พัสดุ (ผู้ทำรายการเบิก)</label>
+            <select id="issueBy" class="staff-select" onchange="onStaffChange(this)"></select>
+            <span class="staff-manage" onclick="openStaffModal()">&#9881; จัดการรายชื่อเจ้าหน้าที่</span>
           </div>
-          <div class="field-row">
-            <div class="field">
-              <label>แผนก</label>
-              <input type="text" id="issueDept" placeholder="เช่น ซ่อมบำรุง">
-            </div>
-            <div class="field">
-              <label>อีเมล</label>
-              <input type="email" id="issueEmail" placeholder="name@company.com">
-            </div>
-          </div>
-          <button class="btn btn-primary" id="issueSubmitBtn" style="width:100%; justify-content:center; padding:11px;" onclick="submitIssue()">&#10003; ยืนยันการเบิก &amp; ส่งอีเมล</button>
-          <div class="helper">ระบบจะเปิดร่างอีเมล (mailto) พร้อมรายการเบิกให้อัตโนมัติหลังยืนยัน</div>
+          <button class="btn btn-primary" id="issueSubmitBtn" style="width:100%; justify-content:center; padding:11px;" onclick="submitIssue()">&#10003; ยืนยันการเบิก</button>
         </div>
       </div>
     </section>
@@ -636,6 +634,11 @@ tbody tr:hover{background:#FAFBFD;}
         </div>
       </div>
 
+      <div class="qa-tabs" style="max-width:440px;">
+        <div class="qa-tab active" id="scanModeIssue" onclick="setScanMode('issue')">&#8593; สแกนเบิกออก</div>
+        <div class="qa-tab" id="scanModeRecv" onclick="setScanMode('recv')">&#8595; สแกนรับเข้า</div>
+      </div>
+
       <div class="grid-2">
         <div class="card">
           <div class="card-head"><h3>&#128247; สแกนด้วยกล้อง (QR + บาร์โค้ด)</h3></div>
@@ -654,12 +657,23 @@ tbody tr:hover{background:#FAFBFD;}
         </div>
 
         <div class="card">
-          <div class="card-head"><h3>ตะกร้าที่สแกน (<span id="scanCartCount">0</span> รายการ)</h3></div>
+          <div class="card-head"><h3><span id="scanCartTitle">ตะกร้าที่สแกน (เบิกออก)</span> (<span id="scanCartCount">0</span> รายการ)</h3></div>
           <div id="scanLastPreview"></div>
           <div id="scanCartList"><div class="empty-note">ยังไม่มีวัสดุในตะกร้า — สแกนหรือค้นหาเพื่อเพิ่ม</div></div>
           <div class="divider"></div>
-          <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;" onclick="sendScanCartToIssue()">&#8593; ไปหน้าเบิกสินค้าทั้งหมด</button>
-          <div class="helper">รายการทั้งหมดในตะกร้าจะถูกโอนไปที่ใบเบิกในหน้า "เบิกสินค้า" ให้กรอกชื่อผู้เบิก/แผนกแล้วยืนยันได้เลย</div>
+          <div id="scanIssueAction">
+            <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;" onclick="sendScanCartToIssue()">&#8593; ไปหน้าเบิกสินค้าทั้งหมด</button>
+            <div class="helper">รายการทั้งหมดในตะกร้าจะถูกโอนไปที่ใบเบิกในหน้า "เบิกสินค้า" ให้เลือกเจ้าหน้าที่พัสดุแล้วยืนยันได้เลย</div>
+          </div>
+          <div id="scanRecvAction" style="display:none;">
+            <div class="field">
+              <label>เจ้าหน้าที่พัสดุ (ผู้รับเข้า)</label>
+              <select id="scanRecvBy" class="staff-select" onchange="onStaffChange(this)"></select>
+              <span class="staff-manage" onclick="openStaffModal()">&#9881; จัดการรายชื่อเจ้าหน้าที่</span>
+            </div>
+            <button class="btn btn-primary" id="scanRecvBtn" style="width:100%; justify-content:center; padding:11px;" onclick="submitScanReceive()">&#10003; บันทึกรับเข้าทั้งหมด</button>
+            <div class="helper">สแกนซ้ำ = เพิ่มจำนวน ปรับจำนวนในตะกร้าได้ แล้วกดบันทึกเพื่อเพิ่มเข้าสต็อกทันที</div>
+          </div>
         </div>
       </div>
     </section>
@@ -821,7 +835,7 @@ tbody tr:hover{background:#FAFBFD;}
     <div class="field"><label>รหัสวัสดุ</label><div class="mono" id="editHistCode" style="font-weight:700;"></div></div>
     <div class="field"><label>จำนวน</label><input type="number" id="editHistQty" min="1"></div>
     <div class="field" id="editHistPriceWrap"><label>ราคาต่อหน่วย</label><input type="number" id="editHistPrice" min="0" step="0.01"></div>
-    <div class="field"><label id="editHistByLabel">ผู้ทำรายการ</label><input type="text" id="editHistBy"></div>
+    <div class="field"><label id="editHistByLabel">ผู้ทำรายการ</label><select id="editHistBy"></select></div>
     <div class="field" id="editHistDeptWrap" style="display:none;"><label>แผนก</label><input type="text" id="editHistDept"></div>
     <div class="helper">แก้ไขจำนวนจะปรับ Stock ปัจจุบันให้อัตโนมัติตามส่วนต่าง และบันทึกลง AuditLog ว่ามีการแก้ไข</div>
     <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px; margin-top:10px;" onclick="saveEditHist()">&#10003; บันทึกการแก้ไข</button>
@@ -839,7 +853,7 @@ tbody tr:hover{background:#FAFBFD;}
     </div>
 
     <div class="qa-panel active" id="qaPanelRecv">
-      <div class="field"><label>ชื่อผู้รับเข้า</label><input type="text" id="qaRecvBy" placeholder="เช่น นายสมชาย"></div>
+      <div class="field"><label>เจ้าหน้าที่พัสดุ (ผู้รับเข้า)</label><select id="qaRecvBy" class="staff-select" onchange="onStaffChange(this)"></select></div>
       <div class="field-row">
         <div class="field"><label>จำนวนรับเข้า</label><input type="number" id="qaRecvQty" min="1" placeholder="0"></div>
         <div class="field"><label>ราคาต่อหน่วย (ถ้ามี)</label><input type="number" id="qaRecvPrice" min="0" step="0.01" placeholder="0.00"></div>
@@ -848,14 +862,23 @@ tbody tr:hover{background:#FAFBFD;}
     </div>
 
     <div class="qa-panel" id="qaPanelIssue">
-      <div class="field"><label>ชื่อผู้เบิก</label><input type="text" id="qaIssueBy" placeholder="ชื่อ-นามสกุล"></div>
-      <div class="field-row">
-        <div class="field"><label>แผนก</label><input type="text" id="qaIssueDept" placeholder="เช่น ซ่อมบำรุง"></div>
-        <div class="field"><label>จำนวนที่เบิก</label><input type="number" id="qaIssueQty" min="1" placeholder="0"></div>
-      </div>
-      <div class="field"><label>อีเมล (ถ้าต้องการใบเบิกทางอีเมล)</label><input type="email" id="qaIssueEmail" placeholder="name@company.com"></div>
+      <div class="field"><label>เจ้าหน้าที่พัสดุ (ผู้ทำรายการเบิก)</label><select id="qaIssueBy" class="staff-select" onchange="onStaffChange(this)"></select></div>
+      <div class="field"><label>จำนวนที่เบิก</label><input type="number" id="qaIssueQty" min="1" placeholder="0"></div>
       <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;" onclick="submitQaIssue()">&#10003; ยืนยันการเบิก</button>
     </div>
+  </div>
+</div>
+
+<!-- Staff list manager -->
+<div class="modal-bg" id="staffModalBg">
+  <div class="modal">
+    <div class="modal-head"><h3>รายชื่อเจ้าหน้าที่พัสดุ</h3><span class="modal-close" onclick="closeStaffModal()">&times;</span></div>
+    <div id="staffModalList"></div>
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <input type="text" id="staffNewName" placeholder="ชื่อเจ้าหน้าที่ที่ต้องการเพิ่ม" onkeydown="if(event.key==='Enter')addStaff()">
+      <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="addStaff()">+ เพิ่ม</button>
+    </div>
+    <div class="helper">รายชื่อนี้ใช้ร่วมกันทุกเครื่อง การลบชื่อจะไม่กระทบประวัติที่บันทึกไปแล้ว</div>
   </div>
 </div>
 
@@ -1009,6 +1032,7 @@ function loadAll(){
     dataReady.issue = true; onDataChange();
   }, err=>{ toast('ไม่สามารถอ่านประวัติเบิกสินค้าได้: '+err.message, true); });
   initLiveScanListener();
+  loadStaffList();
 }
 function onDataChange(){
   if(!(dataReady.inv && dataReady.recv && dataReady.issue)) return;
@@ -1177,11 +1201,31 @@ function handleIncomingScan(code){
 
 /* ---------- scan cart: build up multiple scanned items on this device, then send the
    whole batch to the issue panel at once (checkout-style, like a 7-Eleven scanner) ---------- */
-let scanCart = [];
+let scanCart = [];      // items scanned for ISSUE
+let scanRecvCart = [];  // items scanned for RECEIVE
+let scanMode = 'issue';
+function curScanCart(){ return scanMode==='recv' ? scanRecvCart : scanCart; }
+function setScanMode(mode){
+  scanMode = mode;
+  document.getElementById('scanModeIssue').classList.toggle('active', mode==='issue');
+  document.getElementById('scanModeRecv').classList.toggle('active', mode==='recv');
+  document.getElementById('scanIssueAction').style.display = mode==='issue' ? 'block' : 'none';
+  document.getElementById('scanRecvAction').style.display = mode==='recv' ? 'block' : 'none';
+  document.getElementById('scanCartTitle').textContent = mode==='recv' ? 'ตะกร้าที่สแกน (รับเข้า)' : 'ตะกร้าที่สแกน (เบิกออก)';
+  document.getElementById('scanLastPreview').innerHTML = '';
+  renderScanCart();
+}
 function addToScanCart(item){
+  document.getElementById('scanLastPreview').innerHTML = pickedCardHtml(item);
+  if(scanMode==='recv'){
+    const ex = scanRecvCart.find(c=>c.itemId===item.id);
+    if(ex){ ex.qty += 1; } else { scanRecvCart.push({ itemId:item.id, code:item.code, description:item.description, qty:1 }); }
+    renderScanCart();
+    toast(ex ? `เพิ่มจำนวน ${item.code} เป็น ${ex.qty}` : `เพิ่ม ${item.code} ลงตะกร้ารับเข้าแล้ว`);
+    return;
+  }
   const existing = scanCart.find(c=>c.itemId===item.id);
   const currentQty = existing ? existing.qty : 0;
-  document.getElementById('scanLastPreview').innerHTML = pickedCardHtml(item);
   if(item.stock<=0){
     toast(`${item.code} สินค้าหมดสต็อก ไม่สามารถเบิกได้`, true);
     return;
@@ -1194,33 +1238,87 @@ function addToScanCart(item){
   renderScanCart();
   toast(existing ? `เพิ่มจำนวน ${item.code} เป็น ${existing.qty}` : `เพิ่ม ${item.code} ลงตะกร้าแล้ว`);
 }
-function removeFromScanCart(itemId){ scanCart = scanCart.filter(c=>c.itemId!==itemId); renderScanCart(); }
+function removeFromScanCart(itemId){
+  if(scanMode==='recv') scanRecvCart = scanRecvCart.filter(c=>c.itemId!==itemId);
+  else scanCart = scanCart.filter(c=>c.itemId!==itemId);
+  renderScanCart();
+}
 function updateScanCartQty(itemId, val){
-  const row = scanCart.find(c=>c.itemId===itemId);
+  const list = curScanCart();
+  const row = list.find(c=>c.itemId===itemId);
   if(!row) return;
-  const item = inventory.find(i=>i.id===itemId);
-  const maxQty = item ? item.stock : 0;
   let newQty = Math.max(1, parseInt(val)||1);
-  if(maxQty<=0){
-    toast(`${row.code} สินค้าหมดสต็อก`, true);
-    newQty = row.qty;
-  } else if(newQty > maxQty){
-    newQty = maxQty;
-    toast(`${row.code} มีในสต็อกแค่ ${maxQty} ชิ้น`, true);
+  if(scanMode==='issue'){
+    const item = inventory.find(i=>i.id===itemId);
+    const maxQty = item ? item.stock : 0;
+    if(maxQty<=0){
+      toast(`${row.code} สินค้าหมดสต็อก`, true);
+      newQty = row.qty;
+    } else if(newQty > maxQty){
+      newQty = maxQty;
+      toast(`${row.code} มีในสต็อกแค่ ${maxQty} ชิ้น`, true);
+    }
   }
   row.qty = newQty;
   renderScanCart();
 }
 function renderScanCart(){
-  document.getElementById('scanCartCount').textContent = scanCart.length;
+  const list = curScanCart();
+  document.getElementById('scanCartCount').textContent = list.length;
   const el = document.getElementById('scanCartList');
-  el.innerHTML = scanCart.length ? scanCart.map(c=>`
+  el.innerHTML = list.length ? list.map(c=>`
     <div class="cart-row">
       <span class="cc mono">${c.code}</span>
       <span class="cd">${c.description}</span>
       <input type="number" class="cq" min="1" value="${c.qty}" onchange="updateScanCartQty('${c.itemId}', this.value)">
       <span class="cx" onclick="removeFromScanCart('${c.itemId}')">&times;</span>
     </div>`).join('') : '<div class="empty-note">ยังไม่มีวัสดุในตะกร้า — สแกนหรือค้นหาเพื่อเพิ่ม</div>';
+}
+function submitScanReceive(){
+  const btn = document.getElementById('scanRecvBtn');
+  if(btn.disabled) return;
+  if(!scanRecvCart.length){ toast('ตะกร้ายังไม่มีรายการ', true); return; }
+  const by = document.getElementById('scanRecvBy').value.trim();
+  if(!by){ toast('กรุณาเลือกเจ้าหน้าที่พัสดุ', true); return; }
+  btn.disabled = true;
+  const originalBtnText = btn.innerHTML;
+  btn.innerHTML = 'กำลังบันทึก...';
+  const stampFull = nowStamp();
+  const changed = [];
+  let n = 0;
+  scanRecvCart.forEach(c=>{
+    const item = inventory.find(i=>i.id===c.itemId);
+    if(!item) return;
+    const before = item.stock;
+    const docNo = genDocNo('RCV');
+    item.stock = item.stock + c.qty;
+    item.lastReceive = todayStr();
+    item.receiveBy = by;
+    changed.push(item);
+    pushRecv({
+      date: todayStr(), time: stampFull, itemId:item.id, code:item.code, description:item.description,
+      by, qty:c.qty, price:0, stockBefore:before, stockAfter:item.stock, docNo
+    });
+    sheetsAppendRow('Receive', {
+      Date:stampFull, Remark:item.code, Description:item.description, Qty:c.qty,
+      Price:item.price, Amount:(item.price||0)*c.qty, ReceiveBy:by, ReceiptNo:docNo,
+      OldStock:before, NewStock:item.stock
+    });
+    sheetsAppendRow('AuditLog', {
+      Date:stampFull, Action:'RECEIVE', DocumentNo:docNo, Remark:item.code,
+      OldStock:before, Qty:c.qty, NewStock:item.stock, User:by, Department:''
+    });
+    mirrorMaterialRow(item);
+    n++;
+  });
+  if(changed.length) saveInventoryItems(changed);
+  toast(`บันทึกรับเข้า ${n} รายการ สำเร็จ`);
+  scanRecvCart = [];
+  document.getElementById('scanLastPreview').innerHTML = '';
+  renderScanCart();
+  renderDashboard();
+  btn.disabled = false;
+  btn.innerHTML = originalBtnText;
 }
 function sendScanCartToIssue(){
   if(!scanCart.length){ toast('ตะกร้ายังไม่มีรายการ', true); return; }
@@ -1232,7 +1330,7 @@ function sendScanCartToIssue(){
   document.getElementById('scanLastPreview').innerHTML = '';
   renderCart();
   goPanel('issue');
-  toast('โอนรายการไปยังใบเบิกแล้ว — กรอกชื่อผู้เบิกเพื่อยืนยัน');
+  toast('โอนรายการไปยังใบเบิกแล้ว — เลือกเจ้าหน้าที่พัสดุเพื่อยืนยัน');
 }
 
 /* ---------- URL quick-action: opened when scanning a printed QR label with any camera/LINE app ---------- */
@@ -1560,6 +1658,73 @@ function updateRecvPreview(){
   document.getElementById('recvPreview').textContent = item ? (item.stock + qty) + ' ชิ้น' : '—';
 }
 
+
+/* =========================================================
+   STAFF LIST (shared across devices via Firebase settings/staff)
+   ========================================================= */
+let staffList = [];
+function staffEsc(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function lastStaff(){ try{ return localStorage.getItem('wms_staff')||''; }catch(e){ return ''; } }
+function loadStaffList(){
+  db.ref('settings/staff').on('value', snap=>{
+    const v = snap.val();
+    staffList = Array.isArray(v) ? v.filter(Boolean) : (v ? Object.values(v).filter(Boolean) : []);
+    renderStaffSelects();
+    renderStaffModalList();
+  }, err=>{ toast('ไม่สามารถอ่านรายชื่อเจ้าหน้าที่ได้: '+err.message, true); });
+}
+function renderStaffSelects(){
+  const saved = lastStaff();
+  const placeholder = staffList.length ? '— เลือกเจ้าหน้าที่พัสดุ —' : '— ยังไม่มีรายชื่อ กด "จัดการรายชื่อ" —';
+  document.querySelectorAll('select.staff-select').forEach(sel=>{
+    const cur = sel.value || saved;
+    sel.innerHTML = `<option value="">${placeholder}</option>` + staffList.map(n=>`<option value="${staffEsc(n)}">${staffEsc(n)}</option>`).join('');
+    if(cur && staffList.includes(cur)) sel.value = cur;
+  });
+}
+function onStaffChange(sel){
+  const v = sel.value;
+  try{ localStorage.setItem('wms_staff', v); }catch(e){}
+  document.querySelectorAll('select.staff-select').forEach(s=>{ if(s!==sel) s.value = v; });
+}
+function fillEditStaff(current){
+  const sel = document.getElementById('editHistBy');
+  const names = staffList.includes(current) || !current ? staffList : [current, ...staffList];
+  sel.innerHTML = names.map(n=>`<option value="${staffEsc(n)}">${staffEsc(n)}</option>`).join('');
+  sel.value = current;
+}
+function openStaffModal(){ renderStaffModalList(); document.getElementById('staffNewName').value=''; document.getElementById('staffModalBg').classList.add('show'); }
+function closeStaffModal(){ document.getElementById('staffModalBg').classList.remove('show'); }
+function renderStaffModalList(){
+  const el = document.getElementById('staffModalList');
+  if(!el) return;
+  el.innerHTML = staffList.length ? staffList.map((n,i)=>`
+    <div class="staff-row"><span>${staffEsc(n)}</span><span class="sx" onclick="removeStaff(${i})">&times;</span></div>`).join('')
+    : '<div class="empty-note">ยังไม่มีรายชื่อ — พิมพ์ชื่อด้านล่างแล้วกดเพิ่ม</div>';
+}
+function saveStaffList(){
+  db.ref('settings/staff').set(staffList).catch(err=>toast('บันทึกรายชื่อไม่สำเร็จ: '+err.message, true));
+  renderStaffSelects(); renderStaffModalList();
+}
+function addStaff(){
+  const inp = document.getElementById('staffNewName');
+  const name = inp.value.trim();
+  if(!name){ toast('กรุณาพิมพ์ชื่อเจ้าหน้าที่', true); return; }
+  if(staffList.includes(name)){ toast('มีชื่อนี้อยู่แล้ว', true); return; }
+  staffList = [...staffList, name];
+  inp.value = '';
+  saveStaffList();
+  toast('เพิ่ม '+name+' แล้ว');
+}
+function removeStaff(i){
+  const name = staffList[i];
+  if(name===undefined) return;
+  if(!confirm('ลบ "'+name+'" ออกจากรายชื่อ?\n(ประวัติที่บันทึกไปแล้วจะไม่ถูกลบ)')) return;
+  staffList = staffList.filter((_,idx)=>idx!==i);
+  if(lastStaff()===name){ try{ localStorage.removeItem('wms_staff'); }catch(e){} }
+  saveStaffList();
+}
+
 /* =========================================================
    RECEIVE
    ========================================================= */
@@ -1571,7 +1736,7 @@ function submitReceive(){
   const by = document.getElementById('recvBy').value.trim();
   const qty = parseInt(document.getElementById('recvQty').value)||0;
   const price = parseFloat(document.getElementById('recvPrice').value)||0;
-  if(!by){ toast('กรุณากรอกชื่อผู้รับเข้า', true); return; }
+  if(!by){ toast('กรุณาเลือกเจ้าหน้าที่พัสดุ', true); return; }
   if(qty<=0){ toast('กรุณากรอกจำนวนรับเข้าให้ถูกต้อง', true); return; }
   btn.disabled = true;
   const originalBtnText = btn.innerHTML;
@@ -1603,7 +1768,7 @@ function submitReceive(){
 
   toast(`บันทึกรับสินค้า ${item.code} จำนวน ${qty} ชิ้น สำเร็จ`);
   document.getElementById('recvSearch').value='';
-  document.getElementById('recvBy').value=''; document.getElementById('recvQty').value=''; document.getElementById('recvPrice').value='';
+  document.getElementById('recvQty').value=''; document.getElementById('recvPrice').value='';
   document.getElementById('recvForm').style.display='none';
   document.getElementById('recvPicked').innerHTML='';
   pickedItem.recv=null;
@@ -1651,9 +1816,9 @@ function submitIssue(){
   if(btn.disabled) return; // already processing this click — ignore repeats
   if(!cart.length){ toast('กรุณาเพิ่มรายการลงใบเบิกก่อน', true); return; }
   const by = document.getElementById('issueBy').value.trim();
-  const dept = document.getElementById('issueDept').value.trim();
-  const email = document.getElementById('issueEmail').value.trim();
-  if(!by || !dept){ toast('กรุณากรอกชื่อผู้เบิกและแผนก', true); return; }
+  const dept = '';
+  const email = '';
+  if(!by){ toast('กรุณาเลือกเจ้าหน้าที่พัสดุ', true); return; }
 
   // validate stock still sufficient
   for(const c of cart){
@@ -1665,7 +1830,6 @@ function submitIssue(){
   btn.innerHTML = 'กำลังบันทึก...';
 
   const stamp = nowStamp(); const date = todayStr();
-  let emailLines = [];
   const changedItems = [];
   cart.forEach(c=>{
     const item = inventory.find(i=>i.id===c.itemId);
@@ -1677,7 +1841,6 @@ function submitIssue(){
       date, time:stamp, itemId:item.id, code:item.code, description:item.description,
       by, dept, email, qty:c.qty, stockBefore:before, stockAfter:item.stock, docNo
     });
-    emailLines.push(`- ${item.code} (${item.description}) จำนวน ${c.qty} ชิ้น`);
     sheetsAppendRow('Issue', {
       Date:stamp, Remark:item.code, Description:item.description, Qty:c.qty,
       IssueBy:by, ReceiptNo:docNo, Unit:'', Remain:item.stock, Department:dept
@@ -1686,26 +1849,13 @@ function submitIssue(){
       Date:stamp, Action:'ISSUE', DocumentNo:docNo, Remark:item.code,
       OldStock:before, Qty:c.qty, NewStock:item.stock, User:by, Department:dept
     });
-    if(email){
-      sheetsAppendRow('AuditLog', {
-        Date:stamp, Action:'EMAIL_ISSUE', DocumentNo:docNo, Remark:item.code,
-        OldStock:before, Qty:c.qty, NewStock:item.stock, User:email, Department:dept
-      });
-    }
     mirrorMaterialRow(item);
   });
   saveInventoryItems(changedItems);
 
-  // "send email" — open mailto draft with the requisition slip
-  if(email){
-    const subject = encodeURIComponent('ใบเบิกวัสดุ - ' + by + ' - ' + date);
-    const body = encodeURIComponent(`ใบเบิกวัสดุ\nผู้เบิก: ${by}\nแผนก: ${dept}\nวันที่: ${stamp}\n\nรายการ:\n${emailLines.join('\n')}\n\n(ส่งอัตโนมัติจากระบบ WMS)`);
-    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
-  }
 
   toast(`บันทึกการเบิก ${cart.length} รายการ สำเร็จ`);
   cart = []; renderCart();
-  document.getElementById('issueBy').value=''; document.getElementById('issueDept').value=''; document.getElementById('issueEmail').value='';
   renderDashboard();
   btn.disabled = false;
   btn.innerHTML = originalBtnText;
@@ -1722,7 +1872,7 @@ function openQuickAction(item){
   qaItem = item;
   document.getElementById('qaItemCard').innerHTML = pickedCardHtml(item);
   setQaTab('recv');
-  ['qaRecvBy','qaRecvQty','qaRecvPrice','qaIssueBy','qaIssueDept','qaIssueQty','qaIssueEmail'].forEach(id=>document.getElementById(id).value='');
+  ['qaRecvQty','qaRecvPrice','qaIssueQty'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('qaModalBg').classList.add('show');
 }
 function closeQuickAction(){ document.getElementById('qaModalBg').classList.remove('show'); qaItem=null; }
@@ -1737,7 +1887,7 @@ function submitQaReceive(){
   const by = document.getElementById('qaRecvBy').value.trim();
   const qty = parseInt(document.getElementById('qaRecvQty').value)||0;
   const price = parseFloat(document.getElementById('qaRecvPrice').value)||0;
-  if(!by){ toast('กรุณากรอกชื่อผู้รับเข้า', true); return; }
+  if(!by){ toast('กรุณาเลือกเจ้าหน้าที่พัสดุ', true); return; }
   if(qty<=0){ toast('กรุณากรอกจำนวนรับเข้าให้ถูกต้อง', true); return; }
   const item = inventory.find(i=>i.id===qaItem.id);
   const before = item.stock;
@@ -1766,10 +1916,10 @@ function submitQaReceive(){
 function submitQaIssue(){
   if(!qaItem) return;
   const by = document.getElementById('qaIssueBy').value.trim();
-  const dept = document.getElementById('qaIssueDept').value.trim();
-  const email = document.getElementById('qaIssueEmail').value.trim();
+  const dept = '';
+  const email = '';
   const qty = parseInt(document.getElementById('qaIssueQty').value)||0;
-  if(!by || !dept){ toast('กรุณากรอกชื่อผู้เบิกและแผนก', true); return; }
+  if(!by){ toast('กรุณาเลือกเจ้าหน้าที่พัสดุ', true); return; }
   if(qty<=0){ toast('กรุณากรอกจำนวนที่ต้องการเบิก', true); return; }
   const item = inventory.find(i=>i.id===qaItem.id);
   if(qty>item.stock){ toast('จำนวนเบิกมากกว่า Stock คงเหลือ', true); return; }
@@ -1788,15 +1938,6 @@ function submitQaIssue(){
     Date:stamp, Action:'ISSUE', DocumentNo:docNo, Remark:item.code,
     OldStock:before, Qty:qty, NewStock:item.stock, User:by, Department:dept
   });
-  if(email){
-    sheetsAppendRow('AuditLog', {
-      Date:stamp, Action:'EMAIL_ISSUE', DocumentNo:docNo, Remark:item.code,
-      OldStock:before, Qty:qty, NewStock:item.stock, User:email, Department:dept
-    });
-    const subject = encodeURIComponent('ใบเบิกวัสดุ - ' + by + ' - ' + date);
-    const body = encodeURIComponent(`ใบเบิกวัสดุ\nผู้เบิก: ${by}\nแผนก: ${dept}\nวันที่: ${stamp}\n\nรายการ:\n- ${item.code} (${item.description}) จำนวน ${qty} ชิ้น\n\n(ส่งอัตโนมัติจากระบบ WMS)`);
-    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
-  }
   toast(`บันทึกการเบิก ${item.code} จำนวน ${qty} ชิ้น สำเร็จ`);
   closeQuickAction();
   renderDashboard();
@@ -2038,14 +2179,14 @@ function renderHistory(){
   const head = document.getElementById('histHead');
   const body = document.getElementById('histBody');
   if(activeHistTab==='receive'){
-    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>ผู้รับเข้า</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>Stock ก่อน&rarr;หลัง</th><th>สถานะ</th><th></th></tr>`;
+    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>ผู้รับเข้า</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>Stock คงเหลือ</th><th>สถานะ</th><th></th></tr>`;
     let rows = recvHistory.filter(h=> !q || h.code.toLowerCase().includes(q) || h.by.toLowerCase().includes(q));
     body.innerHTML = rows.length ? rows.map(h=>`
       <tr style="${h.canceled?'opacity:.5;':''}">
       <td style="white-space:nowrap; font-size:12px;">${h.time}</td>
       <td><span class="code-tag">${h.code}</span></td><td>${h.description}</td><td>${h.by}</td>
       <td class="mono">+${h.qty}</td><td class="mono">${fmtMoney(h.price)}</td>
-      <td class="mono">${h.stockBefore} &rarr; ${h.stockAfter}</td>
+      <td class="mono">${h.stockAfter}</td>
       <td>${h.canceled?'<span class="pill pill-zero">ยกเลิกแล้ว</span>':'<span class="pill pill-ok">ปกติ</span>'}</td>
       <td style="white-space:nowrap;">${h.canceled?'':`
         <button class="btn btn-sm" onclick="openEditHist('recv','${h.docNo}')">แก้ไข</button>
@@ -2053,20 +2194,20 @@ function renderHistory(){
       </tr>`).join('')
       : `<tr><td colspan="9" class="empty-note">ไม่มีประวัติการรับสินค้า</td></tr>`;
   } else {
-    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>ผู้เบิก</th><th>แผนก</th><th>จำนวน</th><th>Stock ก่อน&rarr;หลัง</th><th>สถานะ</th><th></th></tr>`;
+    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>ผู้เบิก</th><th>จำนวน</th><th>Stock คงเหลือ</th><th>สถานะ</th><th></th></tr>`;
     let rows = issueHistory.filter(h=> !q || h.code.toLowerCase().includes(q) || h.by.toLowerCase().includes(q));
     body.innerHTML = rows.length ? rows.map(h=>`
       <tr style="${h.canceled?'opacity:.5;':''}">
       <td style="white-space:nowrap; font-size:12px;">${h.time}</td>
-      <td><span class="code-tag">${h.code}</span></td><td>${h.description}</td><td>${h.by}</td><td>${h.dept||'-'}</td>
+      <td><span class="code-tag">${h.code}</span></td><td>${h.description}</td><td>${h.by}</td>
       <td class="mono">-${h.qty}</td>
-      <td class="mono">${h.stockBefore} &rarr; ${h.stockAfter}</td>
+      <td class="mono">${h.stockAfter}</td>
       <td>${h.canceled?'<span class="pill pill-zero">ยกเลิกแล้ว</span>':'<span class="pill pill-ok">ปกติ</span>'}</td>
       <td style="white-space:nowrap;">${h.canceled?'':`
         <button class="btn btn-sm" onclick="openEditHist('issue','${h.docNo}')">แก้ไข</button>
         <button class="btn btn-sm btn-danger" onclick="cancelIssue('${h.docNo}')">ยกเลิก</button>`}</td>
       </tr>`).join('')
-      : `<tr><td colspan="9" class="empty-note">ไม่มีประวัติการเบิกสินค้า</td></tr>`;
+      : `<tr><td colspan="8" class="empty-note">ไม่มีประวัติการเบิกสินค้า</td></tr>`;
   }
 }
 
@@ -2119,12 +2260,12 @@ function openEditHist(type, docNo){
   document.getElementById('editHistDocNo').value = docNo;
   document.getElementById('editHistCode').textContent = rec.code + ' — ' + rec.description;
   document.getElementById('editHistQty').value = rec.qty;
-  document.getElementById('editHistBy').value = rec.by;
+  fillEditStaff(rec.by);
   document.getElementById('editHistTitle').textContent = type==='recv' ? 'แก้ไขรายการรับสินค้า' : 'แก้ไขรายการเบิกสินค้า';
   document.getElementById('editHistByLabel').textContent = type==='recv' ? 'ผู้รับเข้า' : 'ผู้เบิก';
   document.getElementById('editHistPriceWrap').style.display = type==='recv' ? 'block' : 'none';
   document.getElementById('editHistPrice').value = rec.price||0;
-  document.getElementById('editHistDeptWrap').style.display = type==='issue' ? 'block' : 'none';
+  document.getElementById('editHistDeptWrap').style.display = 'none';
   document.getElementById('editHistDept').value = rec.dept||'';
   document.getElementById('editHistModalBg').classList.add('show');
 }
@@ -2136,7 +2277,7 @@ function saveEditHist(){
   const newQty = parseInt(document.getElementById('editHistQty').value)||0;
   const newBy = document.getElementById('editHistBy').value.trim();
   if(newQty<=0){ toast('กรุณากรอกจำนวนให้ถูกต้อง', true); return; }
-  if(!newBy){ toast('กรุณากรอกชื่อผู้ทำรายการ', true); return; }
+  if(!newBy){ toast('กรุณาเลือกเจ้าหน้าที่พัสดุ', true); return; }
 
   if(type==='recv'){
     const rec = recvHistory.find(h=>h.docNo===docNo);
