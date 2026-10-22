@@ -813,7 +813,7 @@ tbody tr:hover{background:#FAFBFD;}
           <div class="card-head"><h3>&#8593; นำเข้าข้อมูลจาก Excel</h3></div>
           <p style="font-size:13px; color:var(--ink-soft); line-height:1.7;">
             อัปโหลดไฟล์ .xlsx ที่มีชีตชื่อ <span class="mono">Inventory</span> หรือ <span class="mono">Material</span> เพื่อแทนที่/อัปเดตข้อมูลวัสดุในคลัง
-            (รองรับหัวคอลัมน์: code/Remark, description/Description, stock/Stock, min/Min, max/Max, unit/หน่วย, price/Price, machine/Machine, supplier/Supplier — ไม่บังคับต้องมี type ระบบจะเดาให้จากรหัสวัสดุ)
+            (รองรับหัวคอลัมน์ทั้งแบบเทมเพลตนี้และไฟล์เดิมของแผนก — code/Remark, description, stock, min, max, unit/หน่วย, price/ต่อหน่วย, machine/Machine, supplier/Supplier — ไม่บังคับต้องมี type ระบบจะเดาให้จากรหัสวัสดุ)
           </p>
           <input type="file" id="importFile" accept=".xlsx,.xls" style="margin-bottom:10px;">
           <button class="btn btn-amber" onclick="importExcel()">&#8593; นำเข้าและอัปเดตคลัง</button>
@@ -2665,6 +2665,65 @@ function exportExcel(){
   toast('ดาวน์โหลดไฟล์ Excel เรียบร้อย');
 }
 
+/* ---- Excel import: understands our own template AND the department's original sheet
+   (two header rows: "ต่อหน่วย | ปรับใหม่ … | วันที่เพิ่มสต๊อก …" with MIN / MAX on the second row).
+   Columns are matched by NAME, so the order doesn't matter. ---- */
+const IMPORT_ALIASES = {
+  code:['code','remark','รหัส','รหัสวัสดุ'], description:['description','รายละเอียด','ชื่อ'], type:['type','ประเภท','หมวด'],
+  stock:['stock','สต็อก','สต๊อก','สต็อกปัจจุบัน','สต๊อกปัจจุบัน'], min:['min'], max:['max'], unit:['unit','หน่วย','หน่วยนับ'],
+  price:['price','ต่อหน่วย','ราคา','ราคาต่อหน่วย'], machine:['machine','สถานะเครื่องจักร','เครื่องจักร'],
+  supplier:['supplier','supper'], lastReceive:['lastreceive'], receiveBy:['receiveby']
+};
+function importNorm(v){ return String(v==null?'':v).trim().toLowerCase().replace(/\s+/g,''); }
+function importFieldOf(cell){
+  const k = importNorm(cell); if(!k) return null;
+  for(const f in IMPORT_ALIASES) if(IMPORT_ALIASES[f].includes(k)) return f;
+  return null;
+}
+function importRowsFromAoa(aoa, opts){
+  // 1) header row = first row that has a code column
+  let h = aoa.findIndex(r=>r.some(c=>importFieldOf(c)==='code'));
+  if(h<0) throw new Error('ไม่พบหัวคอลัมน์ "Remark" หรือ "code" ในไฟล์');
+  const col = {};
+  aoa[h].forEach((c,j)=>{ const f=importFieldOf(c); if(f && col[f]===undefined) col[f]=j; });
+  // 2) optional second header row (MIN / MAX under a grouped header) — its code cell is empty
+  let start = h+1;
+  const sub = aoa[h+1];
+  if(sub && !String(sub[col.code]||'').trim() && sub.some(c=>importFieldOf(c))){
+    sub.forEach((c,j)=>{ const f=importFieldOf(c); if(f && col[f]===undefined) col[f]=j; });
+    start = h+2;
+  }
+  const hasStock = col.stock!==undefined;
+  const clean = v=> (v===0||v==='0'||v==null) ? '' : String(v).trim();
+  const int = v=> parseInt(v)||0;
+  let updated=0, added=0, skipped=0;
+  for(let i=start;i<aoa.length;i++){
+    const r = aoa[i];
+    const code = String(r[col.code]==null?'':r[col.code]).trim();
+    if(!code){ skipped++; continue; }
+    const d = {};
+    if(col.description!==undefined) d.description = String(r[col.description]||'').trim();
+    if(col.type!==undefined && String(r[col.type]||'').trim()) d.type = String(r[col.type]).trim();
+    d.stock = hasStock ? int(r[col.stock]) : 0;               // no Stock column = every stock is 0
+    if(col.min!==undefined) d.min = int(r[col.min]);
+    if(col.max!==undefined) d.max = int(r[col.max]);
+    if(col.unit!==undefined) d.unit = clean(r[col.unit]);
+    if(col.price!==undefined) d.price = parseFloat(r[col.price])||0;
+    if(col.machine!==undefined) d.machine = clean(r[col.machine]);
+    if(col.supplier!==undefined) d.supplier = clean(r[col.supplier]);
+    if(col.lastReceive!==undefined) d.lastReceive = clean(r[col.lastReceive]);
+    if(col.receiveBy!==undefined) d.receiveBy = clean(r[col.receiveBy]);
+    const existing = inventory.find(x=>x.code===code);
+    if(existing){ Object.assign(existing, d); updated++; }
+    else {
+      inventory.push({ id:code, code, description:'', type:guessTypeFromCode(code), stock:0, min:0, max:0, unit:'', price:0,
+        machine:'', supplier:'', lastReceive:'', receiveBy:'', ...d });
+      if(!inventory[inventory.length-1].type) inventory[inventory.length-1].type = guessTypeFromCode(code);
+      added++;
+    }
+  }
+  return { updated, added, skipped, hasStock, cols:Object.keys(col) };
+}
 function importExcel(){
   const file = document.getElementById('importFile').files[0];
   if(!file){ toast('กรุณาเลือกไฟล์ Excel ก่อน', true); return; }
@@ -2673,29 +2732,15 @@ function importExcel(){
     try{
       const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
       const sheetName = wb.SheetNames.find(n=>['inventory','material'].includes(n.toLowerCase())) || wb.SheetNames[0];
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-      if(!rows.length){ toast('ไม่พบข้อมูลในชีต', true); return; }
-      let updated=0, added=0, skipped=0;
-      rows.forEach(r=>{
-        const code = String(r.code||r.Code||r.remark||r.Remark||'').trim();
-        if(!code){ skipped++; return; }
-        const existing = inventory.find(i=>i.code===code);
-        const data = {
-          code, description: String(r.description||r.Description||''),
-          type: String(r.type||r.Type||'') || guessTypeFromCode(code),
-          stock: parseInt(r.stock||r.Stock)||0, min: parseInt(r.min||r.Min)||0, max: parseInt(r.max||r.Max)||0,
-          unit: String(r.unit||r.Unit||r['หน่วย']||''),
-          price: parseFloat(r.price||r.Price)||0, machine: String(r.machine||r.Machine||''),
-          supplier: String(r.supplier||r.Supplier||''),
-          lastReceive: String(r.lastReceive||r.LastReceive||''), receiveBy: String(r.receiveBy||r.ReceiveBy||'')
-        };
-        if(existing){ Object.assign(existing, data); updated++; }
-        else { inventory.push({id:code, ...data}); added++; }
-      });
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header:1, defval:''});
+      if(!aoa.length){ toast('ไม่พบข้อมูลในชีต', true); return; }
+      const hasStockCol = aoa.some(r=>r.some(c=>importFieldOf(c)==='stock'));
+      if(!hasStockCol && !confirm('ไฟล์นี้ไม่มีคอลัมน์ Stock (สต็อกปัจจุบัน)\nระบบจะตั้งสต็อกของทุกรายการในไฟล์เป็น 0\nดำเนินการต่อหรือไม่?')) return;
+      const r = importRowsFromAoa(aoa);
       saveInventory();
       mirrorMaterialSnapshot();
       renderAll();
-      toast(`นำเข้าสำเร็จ: อัปเดต ${updated} รายการ, เพิ่มใหม่ ${added} รายการ${skipped?`, ข้าม ${skipped} แถว (ไม่มีรหัส)`:''}`);
+      toast(`นำเข้าสำเร็จ: อัปเดต ${r.updated} รายการ, เพิ่มใหม่ ${r.added} รายการ${r.skipped?`, ข้าม ${r.skipped} แถว (ไม่มีรหัส)`:''}${r.hasStock?'':' — สต็อกตั้งเป็น 0'}`);
     }catch(err){
       toast('เกิดข้อผิดพลาดในการอ่านไฟล์ Excel: '+err.message, true);
     }
