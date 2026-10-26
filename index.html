@@ -2488,10 +2488,15 @@ function reportData(){
 function exportHistExcel(){
   const r = reportData();
   if(!r.rows.length){ toast('ไม่มีรายการในช่วงที่เลือก', true); return; }
-  const aoa = [[r.title], ['แผนกพัสดุช่าง  '+r.rangeText], [], r.headers, ...r.rows];
+  // Excel leaves out the running stock balance (it changes with every transaction, so it is not part of the file)
+  const drop = r.headers.map((h,i)=>h==='สต็อกคงเหลือ'?i:-1).filter(i=>i>=0);
+  const keep = (arr)=>arr.filter((_,i)=>!drop.includes(i));
+  const headers = keep(r.headers), rows = r.rows.map(keep);
+  const wch = keep(r.wch).map((w,i)=> headers[i]==='เลขที่ใบเบิก' ? 28 : w);   // wide enough for ISS-yyyymmdd-hhmmss-xxxx
+  const aoa = [[r.title], ['แผนกพัสดุช่าง  '+r.rangeText], [], headers, ...rows];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = r.wch.map(w=>({wch:w}));
-  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:r.headers.length-1}}, {s:{r:1,c:0}, e:{r:1,c:r.headers.length-1}}];
+  ws['!cols'] = wch.map(w=>({wch:w}));
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:headers.length-1}}, {s:{r:1,c:0}, e:{r:1,c:headers.length-1}}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, r.sheet);
   const f = document.getElementById('histFrom').value, t = document.getElementById('histTo').value;
