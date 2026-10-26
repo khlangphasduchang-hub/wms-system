@@ -347,7 +347,7 @@ tbody tr:hover{background:#FAFBFD;}
 .hist-filter{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;}
 .hist-filter label{font-size:13px; color:var(--ink-soft); font-weight:600;}
 .hist-filter input[type=date]{width:auto; padding:7px 10px;}
-.hist-wide{min-width:1500px;}
+.hist-wide{min-width:1700px;}
 .hist-wide td, .hist-wide th{white-space:nowrap;}
 .hist-wide td.wrapcell{white-space:normal; min-width:200px;}
 .mo-input{width:125px; padding:5px 7px; border:1px dashed var(--mist); border-radius:6px; font-size:13px; background:#FFFDF5;}
@@ -616,6 +616,7 @@ tbody tr:hover{background:#FAFBFD;}
           <div class="card-head"><h3>ใบเบิกสินค้า (<span id="cartCount">0</span> รายการ)</h3></div>
           <div id="cartList"><div class="empty-note">ยังไม่มีรายการในใบเบิก</div></div>
           <div class="divider"></div>
+          <div class="field"><label>เลขที่ใบเบิก / ใบเสร็จ</label><input type="text" id="issueSlipNo" placeholder="ไม่บังคับ — ถ้าเว้นว่างระบบใช้เลขอัตโนมัติ"></div>
           <div class="field"><label>ชื่อผู้ขอเบิก</label><input type="text" id="issueBy" placeholder="พิมพ์ชื่อ (ไม่บังคับ)"></div>
           <div class="field-row">
             <div class="field"><label>แผนก</label><input type="text" id="issueDept" placeholder="ไม่บังคับ"></div>
@@ -880,6 +881,7 @@ tbody tr:hover{background:#FAFBFD;}
     <input type="hidden" id="editHistDocNo">
     <div class="field"><label>รหัสวัสดุ</label><div class="mono" id="editHistCode" style="font-weight:700;"></div></div>
     <div class="field"><label>จำนวน</label><input type="number" id="editHistQty" min="1"></div>
+    <div class="field"><label>วันที่ / เวลา ที่ทำรายการ</label><input type="datetime-local" id="editHistTime"></div>
     <div class="field" id="editHistPriceWrap"><label>ราคาต่อหน่วย</label><input type="number" id="editHistPrice" min="0" step="0.01"></div>
     <div class="field" id="editHistByWrap"><label id="editHistByLabel">ผู้ทำรายการ</label><select id="editHistBy"></select></div>
     <div id="editHistIssueFields" style="display:none;">
@@ -916,6 +918,7 @@ tbody tr:hover{background:#FAFBFD;}
     </div>
 
     <div class="qa-panel" id="qaPanelIssue">
+      <div class="field"><label>เลขที่ใบเบิก / ใบเสร็จ</label><input type="text" id="qaIssueSlipNo" placeholder="ไม่บังคับ"></div>
       <div class="field"><label>ชื่อผู้ขอเบิก</label><input type="text" id="qaIssueBy" placeholder="พิมพ์ชื่อ (ไม่บังคับ)"></div>
       <div class="field-row">
         <div class="field"><label>แผนก</label><input type="text" id="qaIssueDept" placeholder="ไม่บังคับ"></div>
@@ -1904,6 +1907,7 @@ function submitIssue(){
   if(btn.disabled) return; // already processing this click — ignore repeats
   if(!cart.length){ toast('กรุณาเพิ่มรายการลงใบเบิกก่อน', true); return; }
   // every requester field is optional — a slip can be saved with all of them blank
+  const slipNo = document.getElementById('issueSlipNo').value.trim();
   const by = document.getElementById('issueBy').value.trim();
   const dept = document.getElementById('issueDept').value.trim();
   const plant = document.getElementById('issuePlant').value.trim();
@@ -1929,7 +1933,7 @@ function submitIssue(){
     changedItems.push(item);
     const rec = pushIssue({
       date, time:stamp, itemId:item.id, code:item.code, description:item.description,
-      by, dept, plant, repairNo, machine, mo:'', qty:c.qty, price:item.price||0, stockBefore:before, stockAfter:item.stock, docNo
+      slipNo, by, dept, plant, repairNo, machine, mo:'', qty:c.qty, price:item.price||0, stockBefore:before, stockAfter:item.stock, docNo
     });
     sheetsAppendRow('Issue', issueSheetRow(rec, item));
     sheetsAppendRow('AuditLog', {
@@ -1942,7 +1946,7 @@ function submitIssue(){
 
   toast(`บันทึกการเบิก ${cart.length} รายการ สำเร็จ`);
   cart = []; renderCart();
-  ['issueBy','issueDept','issuePlant','issueRepairNo','issueMachine'].forEach(id=>document.getElementById(id).value='');
+  ['issueSlipNo','issueBy','issueDept','issuePlant','issueRepairNo','issueMachine'].forEach(id=>document.getElementById(id).value='');
   renderDashboard();
   btn.disabled = false;
   btn.innerHTML = originalBtnText;
@@ -1951,7 +1955,7 @@ function submitIssue(){
 function issueSheetRow(rec, item){
   return { Date:rec.time, Remark:rec.code, Description:rec.description, Unit:unitOf(item||inventory.find(i=>i.code===rec.code)),
     Qty:rec.qty, Price:rec.price||0, Remain:rec.stockAfter, Department:rec.dept||'', Plant:rec.plant||'', Machine:rec.machine||'',
-    IssueBy:rec.by||'', RepairNo:rec.repairNo||'', MO:rec.mo||'', ReceiptNo:rec.docNo };
+    IssueBy:rec.by||'', RepairNo:rec.repairNo||'', MO:rec.mo||'', SlipNo:rec.slipNo||rec.docNo, ReceiptNo:rec.docNo };
 }
 
 /* =========================================================
@@ -1965,7 +1969,7 @@ function openQuickAction(item){
   qaItem = item;
   document.getElementById('qaItemCard').innerHTML = pickedCardHtml(item);
   setQaTab('recv');
-  ['qaRecvQty','qaRecvPrice','qaIssueQty','qaIssueBy','qaIssueDept','qaIssuePlant','qaIssueRepairNo','qaIssueMachine'].forEach(id=>document.getElementById(id).value='');
+  ['qaRecvQty','qaRecvPrice','qaIssueQty','qaIssueSlipNo','qaIssueBy','qaIssueDept','qaIssuePlant','qaIssueRepairNo','qaIssueMachine'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('qaModalBg').classList.add('show');
 }
 function closeQuickAction(){ document.getElementById('qaModalBg').classList.remove('show'); qaItem=null; }
@@ -2008,6 +2012,7 @@ function submitQaReceive(){
 }
 function submitQaIssue(){
   if(!qaItem) return;
+  const slipNo = document.getElementById('qaIssueSlipNo').value.trim();
   const by = document.getElementById('qaIssueBy').value.trim();
   const dept = document.getElementById('qaIssueDept').value.trim();
   const plant = document.getElementById('qaIssuePlant').value.trim();
@@ -2023,7 +2028,7 @@ function submitQaIssue(){
   saveInventoryItem(item);
   mirrorMaterialRow(item);
   const stamp = nowStamp(); const date = todayStr();
-  const rec = pushIssue({ date, time:stamp, itemId:item.id, code:item.code, description:item.description, by, dept, plant, repairNo, machine, mo:'', qty, price:item.price||0, stockBefore:before, stockAfter:item.stock, docNo });
+  const rec = pushIssue({ date, time:stamp, itemId:item.id, code:item.code, description:item.description, slipNo, by, dept, plant, repairNo, machine, mo:'', qty, price:item.price||0, stockBefore:before, stockAfter:item.stock, docNo });
   sheetsAppendRow('Issue', issueSheetRow(rec, item));
   sheetsAppendRow('AuditLog', {
     Date:stamp, Action:'ISSUE', DocumentNo:docNo, Remark:item.code,
@@ -2385,13 +2390,30 @@ function findRecv(docNo){ return (histRange.receive && histRange.receive.find(h=
 function findIssue(docNo){ return (histRange.issue && histRange.issue.find(h=>h.docNo===docNo)) || issueHistory.find(h=>h.docNo===docNo); }
 function histMatches(h, q){
   if(!q) return true;
-  return [h.code,h.description,h.by,h.dept,h.plant,h.machine,h.repairNo,h.mo].some(v=>String(v||'').toLowerCase().includes(q));
+  return [h.code,h.description,h.by,h.dept,h.plant,h.machine,h.repairNo,h.mo,h.slipNo,h.docNo].some(v=>String(v||'').toLowerCase().includes(q));
+}
+function slipOf(h){ return h.slipNo || h.docNo || ''; }
+function stampFromDate(d){ return d.toLocaleDateString('th-TH')+' '+d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}); }
+function recDateTime(h){   /* record time -> Date (from _ts, else parsed from the Thai date text) */
+  if(h._ts) return new Date(h._ts);
+  const m = String(h.time||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if(m){ let y=parseInt(m[3]); if(y>2400) y-=543; return new Date(y, parseInt(m[2])-1, parseInt(m[1]), parseInt(m[4]||0), parseInt(m[5]||0)); }
+  return new Date();
+}
+function toLocalInput(d){ return ymdLocal(d)+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function saveSlip(docNo, value){
+  const rec = findIssue(docNo);
+  if(!rec) return;
+  rec.slipNo = value.trim();
+  updateIssueRecord(rec._key, {slipNo:rec.slipNo});
+  sheetsPost({ action:'upsertRow', sheet:'Issue', keyField:'ReceiptNo', row:issueSheetRow(rec) });
+  toast('บันทึกเลขที่ใบเบิกแล้ว');
 }
 function histUnit(h){ return unitOf(inventory.find(i=>i.code===h.code)); }
 /* rows shown on screen = current tab + date range + search; reports drop cancelled records */
 function histVisible(){
   const q = (document.getElementById('histSearch').value||'').trim().toLowerCase();
-  return histList(activeHistTab).filter(h=>histMatches(h,q));
+  return histList(activeHistTab).filter(h=>histMatches(h,q)).slice().sort((a,b)=>(b._ts||0)-(a._ts||0));
 }
 function saveMo(docNo, value){
   const rec = findIssue(docNo);
@@ -2427,10 +2449,11 @@ function renderHistory(){
       </tr>`).join('')
       : `<tr><td colspan="11" class="empty-note">ไม่มีประวัติการรับสินค้า</td></tr>`;
   } else {
-    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>หน่วย</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>Stock คงเหลือ</th><th>แผนก</th><th>โรงงาน</th><th>ชื่อเครื่องจักร</th><th>ผู้ขอเบิก</th><th>หมายเลขใบแจ้งซ่อม</th><th>หมายเลข MO</th><th>สถานะ</th><th></th></tr>`;
+    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>เลขที่ใบเบิก</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>หน่วย</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>Stock คงเหลือ</th><th>แผนก</th><th>โรงงาน</th><th>ชื่อเครื่องจักร</th><th>ผู้ขอเบิก</th><th>หมายเลขใบแจ้งซ่อม</th><th>หมายเลข MO</th><th>สถานะ</th><th></th></tr>`;
     body.innerHTML = rows.length ? rows.map(h=>`
       <tr style="${h.canceled?'opacity:.5;':''}">
       <td style="white-space:nowrap; font-size:12px;">${h.time}</td>
+      <td>${h.canceled?slipOf(h):`<input class="mo-input" style="width:150px;" type="text" value="${String(slipOf(h)).replace(/"/g,'&quot;')}" onchange="saveSlip('${h.docNo}', this.value)">`}</td>
       <td><span class="code-tag">${h.code}</span></td><td class="wrapcell">${h.description}</td><td>${histUnit(h)}</td>
       <td class="mono">${h.qty}</td>
       <td class="mono">${fmtMoney2(histPrice(h))}</td>
@@ -2442,7 +2465,7 @@ function renderHistory(){
         <button class="btn btn-sm" onclick="openEditHist('issue','${h.docNo}')">แก้ไข</button>
         <button class="btn btn-sm btn-danger" onclick="cancelIssue('${h.docNo}')">ยกเลิก</button>`}</td>
       </tr>`).join('')
-      : `<tr><td colspan="15" class="empty-note">ไม่มีประวัติการเบิกสินค้า</td></tr>`;
+      : `<tr><td colspan="16" class="empty-note">ไม่มีประวัติการเบิกสินค้า</td></tr>`;
   }
 }
 
@@ -2458,9 +2481,9 @@ function reportData(){
       rows: rows.map(h=>[h.time,h.code,h.description,histUnit(h),h.qty,histPrice(h),histPrice(h)*h.qty,h.stockAfter,h.by||'']) };
   }
   return { title:'รายงานการเบิกวัสดุ-อะไหล่', sheet:'รายงานเบิก', rangeText,
-    headers:['วันที่/เวลา','รหัสวัสดุ','รายละเอียด','หน่วย','จำนวน','ราคา/หน่วย','สต็อกคงเหลือ','แผนก','โรงงาน','ชื่อเครื่องจักร','ผู้ขอเบิก','หมายเลขใบแจ้งซ่อม','หมายเลข MO'],
-    widths:['8%','10%','16.5%','4.5%','5.5%','6%','6.5%','7.5%','6.5%','8.5%','7.5%','7.5%','5.5%'], align:['l','l','l','c','r','r','r','l','l','l','l','l','l'], wch:[17,19,34,7,7,11,12,14,12,20,16,18,14],
-    rows: rows.map(h=>[h.time,h.code,h.description,histUnit(h),h.qty,histPrice(h),h.stockAfter,h.dept||'',h.plant||'',h.machine||'',h.by||'',h.repairNo||'',h.mo||'']) };
+    headers:['วันที่/เวลา','เลขที่ใบเบิก','รหัสวัสดุ','รายละเอียด','หน่วย','จำนวน','ราคา/หน่วย','สต็อกคงเหลือ','แผนก','โรงงาน','ชื่อเครื่องจักร','ผู้ขอเบิก','หมายเลขใบแจ้งซ่อม','หมายเลข MO'],
+    widths:['7.5%','8%','9.5%','14%','4%','5%','5.5%','6%','6.5%','5.5%','8%','7%','7.5%','6%'], align:['l','l','l','l','c','r','r','r','l','l','l','l','l','l'], wch:[17,20,19,34,7,7,11,12,14,12,20,16,18,14],
+    rows: rows.map(h=>[h.time,slipOf(h),h.code,h.description,histUnit(h),h.qty,histPrice(h),h.stockAfter,h.dept||'',h.plant||'',h.machine||'',h.by||'',h.repairNo||'',h.mo||'']) };
 }
 function exportHistExcel(){
   const r = reportData();
@@ -2567,6 +2590,8 @@ function openEditHist(type, docNo){
   document.getElementById('editHistDocNo').value = docNo;
   document.getElementById('editHistCode').textContent = rec.code + ' — ' + rec.description;
   document.getElementById('editHistQty').value = rec.qty;
+  document.getElementById('editHistTime').value = toLocalInput(recDateTime(rec));
+  document.getElementById('editHistTime').dataset.orig = document.getElementById('editHistTime').value;
   fillEditStaff(rec.by||'');
   document.getElementById('editHistByWrap').style.display = type==='recv' ? 'block' : 'none';
   document.getElementById('editHistIssueFields').style.display = type==='recv' ? 'none' : 'block';
@@ -2590,6 +2615,13 @@ function saveEditHist(){
   const newBy = type==='recv' ? document.getElementById('editHistBy').value.trim() : document.getElementById('editIssBy').value.trim();
   if(newQty<=0){ toast('กรุณากรอกจำนวนให้ถูกต้อง', true); return; }
   if(type==='recv' && !newBy){ toast('กรุณาเลือกเจ้าหน้าที่พัสดุ', true); return; }
+  const timeEl = document.getElementById('editHistTime');
+  let timeChanges = null;
+  if(timeEl.value && timeEl.value!==timeEl.dataset.orig){
+    const nd = new Date(timeEl.value);
+    if(isNaN(nd.getTime())){ toast('วันที่/เวลาไม่ถูกต้อง', true); return; }
+    timeChanges = { time:stampFromDate(nd), date:ymdLocal(nd), _ts:nd.getTime() };
+  }
 
   if(type==='recv'){
     const rec = findRecv(docNo);
@@ -2609,7 +2641,8 @@ function saveEditHist(){
       rec.stockAfter = item.stock;
     }
     rec.qty = newQty; rec.price = newPrice; rec.by = newBy;
-    updateRecvRecord(rec._key, {qty:newQty, price:newPrice, by:newBy, stockAfter:rec.stockAfter});
+    if(timeChanges) Object.assign(rec, timeChanges);
+    updateRecvRecord(rec._key, Object.assign({qty:newQty, price:newPrice, by:newBy, stockAfter:rec.stockAfter}, timeChanges||{}));
   } else {
     const rec = findIssue(docNo);
     if(!rec || rec.canceled) return;
@@ -2630,7 +2663,8 @@ function saveEditHist(){
       rec.stockAfter = item.stock;
     }
     rec.qty = newQty; rec.by = newBy; rec.dept = newDept; rec.plant = newPlant; rec.repairNo = newRepair; rec.machine = newMachine;
-    updateIssueRecord(rec._key, {qty:newQty, by:newBy, dept:newDept, plant:newPlant, repairNo:newRepair, machine:newMachine, stockAfter:rec.stockAfter});
+    if(timeChanges) Object.assign(rec, timeChanges);
+    updateIssueRecord(rec._key, Object.assign({qty:newQty, by:newBy, dept:newDept, plant:newPlant, repairNo:newRepair, machine:newMachine, stockAfter:rec.stockAfter}, timeChanges||{}));
     sheetsPost({ action:'upsertRow', sheet:'Issue', keyField:'ReceiptNo', row:issueSheetRow(rec, item) });
   }
   closeEditHist();
