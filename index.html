@@ -347,7 +347,7 @@ tbody tr:hover{background:#FAFBFD;}
 .hist-filter{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;}
 .hist-filter label{font-size:13px; color:var(--ink-soft); font-weight:600;}
 .hist-filter input[type=date]{width:auto; padding:7px 10px;}
-.hist-wide{min-width:1700px;}
+.hist-wide{min-width:1850px;}
 .hist-wide td, .hist-wide th{white-space:nowrap;}
 .hist-wide td.wrapcell{white-space:normal; min-width:200px;}
 .mo-input{width:125px; padding:5px 7px; border:1px dashed var(--mist); border-radius:6px; font-size:13px; background:#FFFDF5;}
@@ -2409,6 +2409,10 @@ function saveSlip(docNo, value){
   sheetsPost({ action:'upsertRow', sheet:'Issue', keyField:'ReceiptNo', row:issueSheetRow(rec) });
   toast('บันทึกเลขที่ใบเบิกแล้ว');
 }
+function histMinMax(h){   /* screen only: the item's CURRENT Min / Max */
+  const it = inventory.find(i=>i.code===h.code);
+  return it ? [it.min||0, it.max||0] : ['-','-'];
+}
 function histUnit(h){ return unitOf(inventory.find(i=>i.code===h.code)); }
 /* rows shown on screen = current tab + date range + search; reports drop cancelled records */
 function histVisible(){
@@ -2434,7 +2438,7 @@ function renderHistory(){
   document.getElementById('histTable').classList.toggle('hist-wide', activeHistTab!=='receive');
   const stat = h=> h.canceled?'<span class="pill pill-zero">ยกเลิกแล้ว</span>':'<span class="pill pill-ok">ปกติ</span>';
   if(activeHistTab==='receive'){
-    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>หน่วย</th><th>ผู้รับเข้า</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>จำนวนเงิน</th><th>Stock คงเหลือ</th><th>สถานะ</th><th></th></tr>`;
+    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>หน่วย</th><th>ผู้รับเข้า</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>จำนวนเงิน</th><th>Stock คงเหลือ</th><th>Min</th><th>Max</th><th>สถานะ</th><th></th></tr>`;
     body.innerHTML = rows.length ? rows.map(h=>`
       <tr style="${h.canceled?'opacity:.5;':''}">
       <td style="white-space:nowrap; font-size:12px;">${h.time}</td>
@@ -2442,14 +2446,15 @@ function renderHistory(){
       <td class="mono">${h.qty}</td><td class="mono">${fmtMoney2(histPrice(h))}</td>
       <td class="mono">${fmtMoney2(histPrice(h)*h.qty)}</td>
       <td class="mono">${h.stockAfter}</td>
+      <td class="mono">${histMinMax(h)[0]}</td><td class="mono">${histMinMax(h)[1]}</td>
       <td>${stat(h)}</td>
       <td style="white-space:nowrap;">${h.canceled?'':`
         <button class="btn btn-sm" onclick="openEditHist('recv','${h.docNo}')">แก้ไข</button>
         <button class="btn btn-sm btn-danger" onclick="cancelReceive('${h.docNo}')">ยกเลิก</button>`}</td>
       </tr>`).join('')
-      : `<tr><td colspan="11" class="empty-note">ไม่มีประวัติการรับสินค้า</td></tr>`;
+      : `<tr><td colspan="13" class="empty-note">ไม่มีประวัติการรับสินค้า</td></tr>`;
   } else {
-    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>เลขที่ใบเบิก</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>หน่วย</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>Stock คงเหลือ</th><th>แผนก</th><th>โรงงาน</th><th>ชื่อเครื่องจักร</th><th>ผู้ขอเบิก</th><th>หมายเลขใบแจ้งซ่อม</th><th>หมายเลข MO</th><th>สถานะ</th><th></th></tr>`;
+    head.innerHTML = `<tr><th>วันที่/เวลา</th><th>เลขที่ใบเบิก</th><th>รหัสวัสดุ</th><th>รายละเอียด</th><th>หน่วย</th><th>จำนวน</th><th>ราคา/หน่วย</th><th>Stock คงเหลือ</th><th>Min</th><th>Max</th><th>แผนก</th><th>โรงงาน</th><th>ชื่อเครื่องจักร</th><th>ผู้ขอเบิก</th><th>หมายเลขใบแจ้งซ่อม</th><th>หมายเลข MO</th><th>สถานะ</th><th></th></tr>`;
     body.innerHTML = rows.length ? rows.map(h=>`
       <tr style="${h.canceled?'opacity:.5;':''}">
       <td style="white-space:nowrap; font-size:12px;">${h.time}</td>
@@ -2458,6 +2463,7 @@ function renderHistory(){
       <td class="mono">${h.qty}</td>
       <td class="mono">${fmtMoney2(histPrice(h))}</td>
       <td class="mono">${h.stockAfter}</td>
+      <td class="mono">${histMinMax(h)[0]}</td><td class="mono">${histMinMax(h)[1]}</td>
       <td>${h.dept||''}</td><td>${h.plant||''}</td><td>${h.machine||''}</td><td>${h.by||''}</td><td>${h.repairNo||''}</td>
       <td>${h.canceled?(h.mo||''):`<input class="mo-input" type="text" value="${String(h.mo||'').replace(/"/g,'&quot;')}" placeholder="พิมพ์เลข MO" onchange="saveMo('${h.docNo}', this.value)">`}</td>
       <td>${stat(h)}</td>
@@ -2465,7 +2471,7 @@ function renderHistory(){
         <button class="btn btn-sm" onclick="openEditHist('issue','${h.docNo}')">แก้ไข</button>
         <button class="btn btn-sm btn-danger" onclick="cancelIssue('${h.docNo}')">ยกเลิก</button>`}</td>
       </tr>`).join('')
-      : `<tr><td colspan="16" class="empty-note">ไม่มีประวัติการเบิกสินค้า</td></tr>`;
+      : `<tr><td colspan="18" class="empty-note">ไม่มีประวัติการเบิกสินค้า</td></tr>`;
   }
 }
 
