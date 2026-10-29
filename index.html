@@ -822,6 +822,12 @@ tbody tr:hover{background:#FAFBFD;}
       </div>
 
       <div class="card">
+        <div class="card-head"><h3>ล้างประวัติรับ-เบิกทั้งหมด (ไม่กระทบข้อมูลคลัง)</h3></div>
+        <p style="font-size:13px; color:var(--ink-soft);">ใช้ลบข้อมูลทดลอง: ลบประวัติรับเข้าและเบิกออกทั้งหมด (รวมแท็บ Receive / Issue / AuditLog ใน Google Sheets ถ้าเลือก) โดย<b>ข้อมูลวัสดุ สต็อก Min และ Max ไม่เปลี่ยน</b></p>
+        <button class="btn btn-danger" onclick="clearHistoryOnly()">ล้างประวัติรับ-เบิกทั้งหมด</button>
+      </div>
+
+      <div class="card">
         <div class="card-head"><h3>ตั้งสต็อกคงเหลือทุกรายการเป็น 0</h3></div>
         <p style="font-size:13px; color:var(--ink-soft);">ใช้ตอนเริ่มนับสต็อกใหม่จริง: ตั้ง Stock ของวัสดุทุกรายการเป็น 0 โดยค่า Min / Max และข้อมูลอื่นยังอยู่ครบ (ประวัติรับ-เบิกเดิมไม่ถูกลบ)</p>
         <button class="btn btn-danger" onclick="resetAllStock()">ตั้งสต็อกทั้งหมดเป็น 0</button>
@@ -1475,6 +1481,20 @@ function updateIssueRecord(key, changes){
   db.ref('issueHistory/'+key).update(changes).catch(err=>toast('บันทึกไม่สำเร็จ: '+err.message, true));
 }
 
+function clearHistoryOnly(){
+  const nRecv = recvHistory.length, nIss = issueHistory.length;
+  if(!confirm('ลบประวัติรับเข้า '+nRecv+' รายการ และประวัติเบิกออก '+nIss+' รายการ ทั้งหมดใช่หรือไม่?\n(ข้อมูลวัสดุ สต็อก Min Max ไม่ถูกแตะ — แต่ลบแล้วกู้คืนไม่ได้ และมีผลกับทุกเครื่อง)')) return;
+  const word = prompt('พิมพ์คำว่า ล้างประวัติ เพื่อยืนยัน');
+  if(word===null || word.trim()!=='ล้างประวัติ'){ toast('ยกเลิกการล้างประวัติ'); return; }
+  const alsoSheets = confirm('ล้างประวัติใน Google Sheets ด้วยหรือไม่?\n(แท็บ Receive, Issue, AuditLog — แท็บ Material ไม่ถูกแตะ)\n\nตกลง = ล้างด้วย   ยกเลิก = ล้างเฉพาะในระบบ');
+  db.ref('recvHistory').remove().catch(err=>toast('ล้างประวัติรับเข้าไม่สำเร็จ: '+err.message, true));
+  db.ref('issueHistory').remove().catch(err=>toast('ล้างประวัติเบิกไม่สำเร็จ: '+err.message, true));
+  if(alsoSheets){
+    ['Receive','Issue','AuditLog'].forEach(name=>sheetsPost({ action:'replaceAll', sheet:name, rows:[] }));
+  }
+  histRange = { receive:null, issue:null };
+  toast('ล้างประวัติรับ-เบิกเรียบร้อย — ข้อมูลคลังไม่เปลี่ยน');
+}
 function resetAllStock(){
   if(!confirm('ตั้ง Stock ของวัสดุทั้ง '+inventory.length+' รายการเป็น 0 ใช่หรือไม่?\n(Min / Max และข้อมูลอื่นไม่เปลี่ยน มีผลกับทุกเครื่อง)')) return;
   const word = prompt('พิมพ์คำว่า รีเซ็ต เพื่อยืนยัน');
